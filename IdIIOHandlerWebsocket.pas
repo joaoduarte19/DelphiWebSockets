@@ -14,6 +14,7 @@ type
     function  CheckForDataOnSource(ATimeout: Integer = 0): Boolean;
     procedure CheckForDisconnect(ARaiseExceptionIfDisconnected: Boolean; AIgnoreBuffer: Boolean);
     procedure Clear;
+    procedure Close;
     function  GetBinding: TIdSocketHandle;
     function  GetClosedGracefully: Boolean;
     function  GetConnected: Boolean;

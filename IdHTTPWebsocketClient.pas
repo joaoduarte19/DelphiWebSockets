@@ -1479,7 +1479,7 @@ begin
             end;
 
             //try reconnect
-            ws := chn.IOHandler as TIdIOHandlerWebsocket;
+            ws := chn.IOHandler as IIOHandlerWebsocket;
             if ( (ws = nil) or
                  (SecondsBetween(Now, ws.LastActivityTime) >= 5) ) then
             begin

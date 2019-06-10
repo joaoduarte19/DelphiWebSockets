@@ -3,10 +3,13 @@
         <ProjectGuid>{292130D9-4C00-4B4A-8E8D-C92469173F3E}</ProjectGuid>
     </PropertyGroup>
     <ItemGroup>
-        <Projects Include="WebSocketEchoClient.dproj">
+        <Projects Include="WebSocketEchoClient\WebSocketEchoClient.dproj">
             <Dependencies/>
         </Projects>
-        <Projects Include="WebSocketEchoServer.dproj">
+        <Projects Include="WebSocketEchoServer\WebSocketEchoServer.dproj">
+            <Dependencies/>
+        </Projects>
+        <Projects Include="FMXWebSocketEchoClient\FMXWebSocketEchoClient.dproj">
             <Dependencies/>
         </Projects>
     </ItemGroup>
@@ -18,31 +21,40 @@
         </BorlandProject>
     </ProjectExtensions>
     <Target Name="WebSocketEchoClient">
-        <MSBuild Projects="WebSocketEchoClient.dproj"/>
+        <MSBuild Projects="WebSocketEchoClient\WebSocketEchoClient.dproj"/>
     </Target>
     <Target Name="WebSocketEchoClient:Clean">
-        <MSBuild Projects="WebSocketEchoClient.dproj" Targets="Clean"/>
+        <MSBuild Projects="WebSocketEchoClient\WebSocketEchoClient.dproj" Targets="Clean"/>
     </Target>
     <Target Name="WebSocketEchoClient:Make">
-        <MSBuild Projects="WebSocketEchoClient.dproj" Targets="Make"/>
+        <MSBuild Projects="WebSocketEchoClient\WebSocketEchoClient.dproj" Targets="Make"/>
     </Target>
     <Target Name="WebSocketEchoServer">
-        <MSBuild Projects="WebSocketEchoServer.dproj"/>
+        <MSBuild Projects="WebSocketEchoServer\WebSocketEchoServer.dproj"/>
     </Target>
     <Target Name="WebSocketEchoServer:Clean">
-        <MSBuild Projects="WebSocketEchoServer.dproj" Targets="Clean"/>
+        <MSBuild Projects="WebSocketEchoServer\WebSocketEchoServer.dproj" Targets="Clean"/>
     </Target>
     <Target Name="WebSocketEchoServer:Make">
-        <MSBuild Projects="WebSocketEchoServer.dproj" Targets="Make"/>
+        <MSBuild Projects="WebSocketEchoServer\WebSocketEchoServer.dproj" Targets="Make"/>
+    </Target>
+    <Target Name="FMXWebSocketEchoClient">
+        <MSBuild Projects="FMXWebSocketEchoClient\FMXWebSocketEchoClient.dproj"/>
+    </Target>
+    <Target Name="FMXWebSocketEchoClient:Clean">
+        <MSBuild Projects="FMXWebSocketEchoClient\FMXWebSocketEchoClient.dproj" Targets="Clean"/>
+    </Target>
+    <Target Name="FMXWebSocketEchoClient:Make">
+        <MSBuild Projects="FMXWebSocketEchoClient\FMXWebSocketEchoClient.dproj" Targets="Make"/>
     </Target>
     <Target Name="Build">
-        <CallTarget Targets="WebSocketEchoClient;WebSocketEchoServer"/>
+        <CallTarget Targets="WebSocketEchoClient;WebSocketEchoServer;FMXWebSocketEchoClient"/>
     </Target>
     <Target Name="Clean">
-        <CallTarget Targets="WebSocketEchoClient:Clean;WebSocketEchoServer:Clean"/>
+        <CallTarget Targets="WebSocketEchoClient:Clean;WebSocketEchoServer:Clean;FMXWebSocketEchoClient:Clean"/>
     </Target>
     <Target Name="Make">
-        <CallTarget Targets="WebSocketEchoClient:Make;WebSocketEchoServer:Make"/>
+        <CallTarget Targets="WebSocketEchoClient:Make;WebSocketEchoServer:Make;FMXWebSocketEchoClient:Make"/>
     </Target>
     <Import Project="$(BDS)\Bin\CodeGear.Group.Targets" Condition="Exists('$(BDS)\Bin\CodeGear.Group.Targets')"/>
 </Project>

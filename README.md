@@ -1,4 +1,4 @@
-# DelphiWebSockets
+# DelphiWebsockets
 WebSockets and Socket.io for Delphi
 
 Now includes SSL, a demo echo client, and echo server.

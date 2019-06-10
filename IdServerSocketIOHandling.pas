@@ -17,17 +17,30 @@ uses
 type
   TIdServerSocketIOHandling = class(TIdBaseSocketIOHandling)
   protected
-    procedure ProcessHeatbeatRequest(const AContext: ISocketIOContext; const aText: string); override;
+    procedure ProcessHeatbeatRequest(const AContext: ISocketIOContext;
+      const AText: string); override;
   public
-    function  SendToAll(const aMessage: string; const aCallback: TSocketIOMsgJSON = nil; const aOnError: TSocketIOError = nil): Integer;
-    procedure SendTo   (const aContext: TIdServerContext; const aMessage: string; const aCallback: TSocketIOMsgJSON = nil; const aOnError: TSocketIOError = nil);
-    function  EmitEventToAll(const aEventName: string; const aData: string      ; const aCallback: TSocketIOMsgJSON = nil; const aOnError: TSocketIOError = nil): Integer;overload;
+    function  SendToAll(const AMessage: string;
+      const ACallback: TSocketIOMsgJSON = nil;
+      const AOnError: TSocketIOError = nil): Integer;
+    procedure SendTo   (const aContext: TIdServerContext;
+      const AMessage: string; const ACallback: TSocketIOMsgJSON = nil;
+      const AOnError: TSocketIOError = nil);
+    function  EmitEventToAll(const AEventName: string; const AData: string;
+      const ACallback: TSocketIOMsgJSON = nil;
+      const AOnError: TSocketIOError = nil): Integer; overload;
     {$IFDEF SUPEROBJECT}
-    function  EmitEventToAll(const aEventName: string; const aData: ISuperObject; const aCallback: TSocketIOMsgJSON = nil; const aOnError: TSocketIOError = nil): Integer;overload;
-    procedure EmitEventTo   (const aContext: TIdServerContext;
-                             const aEventName: string; const aData: ISuperObject; const aCallback: TSocketIOMsgJSON = nil; const aOnError: TSocketIOError = nil);overload;
-    procedure EmitEventTo   (const aContext: ISocketIOContext;
-                             const aEventName: string; const aData: ISuperObject; const aCallback: TSocketIOMsgJSON = nil; const aOnError: TSocketIOError = nil);overload;
+    function  EmitEventToAll(const AEventName: string;
+      const AData: ISuperObject; const ACallback: TSocketIOMsgJSON = nil;
+      const AOnError: TSocketIOError = nil): Integer; overload;
+    procedure EmitEventTo(const aContext: TIdServerContext;
+      const AEventName: string; const AData: ISuperObject;
+      const ACallback: TSocketIOMsgJSON = nil;
+      const AOnError: TSocketIOError = nil); overload;
+    procedure EmitEventTo(const aContext: ISocketIOContext;
+      const AEventName: string; const AData: ISuperObject;
+      const ACallback: TSocketIOMsgJSON = nil;
+      const AOnError: TSocketIOError = nil);overload;
     {$ENDIF}
   end;
 
@@ -36,88 +49,92 @@ implementation
 { TIdServerSocketIOHandling }
 
 procedure TIdServerSocketIOHandling.ProcessHeatbeatRequest(
-  const AContext: ISocketIOContext; const aText: string);
+  const AContext: ISocketIOContext; const AText: string);
 begin
-  inherited ProcessHeatbeatRequest(AContext, aText);
+  inherited ProcessHeatbeatRequest(AContext, AText);
 end;
 
 {$IFDEF SUPEROBJECT}
 procedure TIdServerSocketIOHandling.EmitEventTo(
-  const aContext: ISocketIOContext; const aEventName: string;
-  const aData: ISuperObject; const aCallback: TSocketIOMsgJSON; const aOnError: TSocketIOError);
+  const aContext: ISocketIOContext; const AEventName: string;
+  const AData: ISuperObject; const ACallback: TSocketIOMsgJSON;
+  const AOnError: TSocketIOError);
 var
   jsonarray: string;
 begin
   if aContext.IsDisconnected then
     raise EIdSocketIoUnhandledMessage.Create('socket.io connection closed!');
 
-  if aData.IsType(stArray) then
-    jsonarray := aData.AsString
-  else if aData.IsType(stString) then
-    jsonarray := '["' + aData.AsString + '"]'
+  if AData.IsType(stArray) then
+    jsonarray := AData.AsString
+  else if AData.IsType(stString) then
+    jsonarray := '["' + AData.AsString + '"]'
   else
-    jsonarray := '[' + aData.AsString + ']';
+    jsonarray := '[' + AData.AsString + ']';
 
-  if not Assigned(aCallback) then
-    WriteSocketIOEvent(aContext, ''{no room}, aEventName, jsonarray, nil, nil)
+  if not Assigned(ACallback) then
+    WriteSocketIOEvent(aContext, ''{no room}, AEventName, jsonarray, nil, nil)
   else
-    WriteSocketIOEventRef(aContext, ''{no room}, aEventName, jsonarray,
-      procedure(const aData: string)
+    WriteSocketIOEventRef(aContext, ''{no room}, AEventName, jsonarray,
+      procedure(const AData: string)
       begin
-        aCallback(aContext, SO(aData), nil);
-      end, aOnError);
+        ACallback(aContext, SO(AData), nil);
+      end, AOnError);
 end;
 
 procedure TIdServerSocketIOHandling.EmitEventTo(
-  const aContext: TIdServerContext; const aEventName: string;
-  const aData: ISuperObject; const aCallback: TSocketIOMsgJSON; const aOnError: TSocketIOError);
+  const aContext: TIdServerContext; const AEventName: string;
+  const AData: ISuperObject; const ACallback: TSocketIOMsgJSON;
+  const AOnError: TSocketIOError);
 var
   context: ISocketIOContext;
 begin
   Lock;
   try
     context := FConnections.Items[aContext];
-    EmitEventTo(context, aEventName, aData, aCallback, aOnError);
+    EmitEventTo(context, AEventName, AData, ACallback, AOnError);
   finally
-    UnLock;
+    Unlock;
   end;
 end;
 
-function TIdServerSocketIOHandling.EmitEventToAll(const aEventName: string; const aData: ISuperObject;
-  const aCallback: TSocketIOMsgJSON; const aOnError: TSocketIOError): Integer;
+function TIdServerSocketIOHandling.EmitEventToAll(const AEventName: string;
+  const AData: ISuperObject; const ACallback: TSocketIOMsgJSON;
+  const AOnError: TSocketIOError): Integer;
 begin
-  if aData.IsType(stString) then
-    Result := EmitEventToAll(aEventName, '"' + aData.AsString + '"', aCallback, aOnError)
+  if AData.IsType(stString) then
+    Result := EmitEventToAll(AEventName, '"' + AData.AsString + '"', ACallback, AOnError)
   else
-    Result := EmitEventToAll(aEventName, aData.AsString, aCallback, aOnError);
+    Result := EmitEventToAll(AEventName, AData.AsString, ACallback, AOnError);
 end;
 {$ENDIF}
 
-function TIdServerSocketIOHandling.EmitEventToAll(const aEventName,
-  aData: string; const aCallback: TSocketIOMsgJSON;
-  const aOnError: TSocketIOError): Integer;
+function TIdServerSocketIOHandling.EmitEventToAll(const AEventName,
+  AData: string; const ACallback: TSocketIOMsgJSON;
+  const AOnError: TSocketIOError): Integer;
 var
   context: ISocketIOContext;
   jsonarray: string;
 begin
   Result := 0;
-  jsonarray := '[' + aData + ']';
+  jsonarray := '[' + AData + ']';
 
   Lock;
   try
     for context in FConnections.Values do
     begin
-      if context.IsDisconnected then Continue;
+      if context.IsDisconnected then
+        Continue;
 
       try
-        if not Assigned(aCallback) then
-          WriteSocketIOEvent(context, ''{no room}, aEventName, jsonarray, nil, nil)
+        if not Assigned(ACallback) then
+          WriteSocketIOEvent(context, ''{no room}, AEventName, jsonarray, nil, nil)
         else
-          WriteSocketIOEventRef(context, ''{no room}, aEventName, jsonarray,
-            procedure(const aData: string)
+          WriteSocketIOEventRef(context, ''{no room}, AEventName, jsonarray,
+            procedure(const AData: string)
             begin
-              aCallback(context, SO(aData), nil);
-            end, aOnError);
+              ACallback(context, SO(AData), nil);
+            end, AOnError);
       except
         //try to send to others
       end;
@@ -125,29 +142,31 @@ begin
     end;
     for context in FConnectionsGUID.Values do
     begin
-      if context.IsDisconnected then Continue;
+      if context.IsDisconnected then
+        Continue;
 
       try
-        if not Assigned(aCallback) then
-          WriteSocketIOEvent(context, ''{no room}, aEventName, jsonarray, nil, nil)
+        if not Assigned(ACallback) then
+          WriteSocketIOEvent(context, ''{no room}, AEventName, jsonarray, nil, nil)
         else
-          WriteSocketIOEventRef(context, ''{no room}, aEventName, jsonarray,
-            procedure(const aData: string)
+          WriteSocketIOEventRef(context, ''{no room}, AEventName, jsonarray,
+            procedure(const AData: string)
             begin
-              aCallback(context, SO(aData), nil);
-            end, aOnError);
+              ACallback(context, SO(AData), nil);
+            end, AOnError);
       except
         //try to send to others
       end;
       Inc(Result);
     end;
   finally
-    UnLock;
+    Unlock;
   end;
 end;
 
 procedure TIdServerSocketIOHandling.SendTo(const aContext: TIdServerContext;
-  const aMessage: string; const aCallback: TSocketIOMsgJSON; const aOnError: TSocketIOError);
+  const AMessage: string; const ACallback: TSocketIOMsgJSON;
+  const AOnError: TSocketIOError);
 var
   context: ISocketIOContext;
 begin
@@ -157,21 +176,21 @@ begin
     if context.IsDisconnected then
       raise EIdSocketIoUnhandledMessage.Create('socket.io connection closed!');
 
-    if not Assigned(aCallback) then
-      WriteSocketIOMsg(context, ''{no room}, aMessage, nil)
+    if not Assigned(ACallback) then
+      WriteSocketIOMsg(context, ''{no room}, AMessage, nil)
     else
-      WriteSocketIOMsg(context, ''{no room}, aMessage,
-        procedure(const aData: string)
+      WriteSocketIOMsg(context, ''{no room}, AMessage,
+        procedure(const AData: string)
         begin
-          aCallback(context, SO(aData), nil);
-        end, aOnError);
+          ACallback(context, SO(AData), nil);
+        end, AOnError);
   finally
-    UnLock;
+    Unlock;
   end;
 end;
 
-function TIdServerSocketIOHandling.SendToAll(const aMessage: string;
-  const aCallback: TSocketIOMsgJSON; const aOnError: TSocketIOError): Integer;
+function TIdServerSocketIOHandling.SendToAll(const AMessage: string;
+  const ACallback: TSocketIOMsgJSON; const AOnError: TSocketIOError): Integer;
 var
   context: ISocketIOContext;
 begin
@@ -180,34 +199,36 @@ begin
   try
     for context in FConnections.Values do
     begin
-      if context.IsDisconnected then Continue;
+      if context.IsDisconnected then
+        Continue;
 
-      if not Assigned(aCallback) then
-        WriteSocketIOMsg(context, ''{no room}, aMessage, nil)
+      if not Assigned(ACallback) then
+        WriteSocketIOMsg(context, ''{no room}, AMessage, nil)
       else
-        WriteSocketIOMsg(context, ''{no room}, aMessage,
-          procedure(const aData: string)
+        WriteSocketIOMsg(context, ''{no room}, AMessage,
+          procedure(const AData: string)
           begin
-            aCallback(context, SO(aData), nil);
-          end, aOnError);
+            ACallback(context, SO(AData), nil);
+          end, AOnError);
       Inc(Result);
     end;
     for context in FConnectionsGUID.Values do
     begin
-      if context.IsDisconnected then Continue;
+      if context.IsDisconnected then
+        Continue;
 
-      if not Assigned(aCallback) then
-        WriteSocketIOMsg(context, ''{no room}, aMessage, nil)
+      if not Assigned(ACallback) then
+        WriteSocketIOMsg(context, ''{no room}, AMessage, nil)
       else
-        WriteSocketIOMsg(context, ''{no room}, aMessage,
-          procedure(const aData: string)
+        WriteSocketIOMsg(context, ''{no room}, AMessage,
+          procedure(const AData: string)
           begin
-            aCallback(context, SO(aData), nil);
+            ACallback(context, SO(AData), nil);
           end);
       Inc(Result);
     end;
   finally
-    UnLock;
+    Unlock;
   end;
 end;
 

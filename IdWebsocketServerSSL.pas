@@ -1,29 +1,28 @@
-unit IdWebsocketServerSSL;
+unit IdWebSocketServerSSL;
 
 interface
-
 uses
-  IdWebsocketServer;
+  IdWebSocketServer;
 
 type
-  TIdWebSocketServerSSL = class(TIdWebsocketServer)
+  TIdWebSocketServerSSL = class(TIdWebSocketServer)
   public
     procedure AfterConstruction; override;
   end;
 
 implementation
+uses
+  IdServerIOHandlerWebsocket, IdServerIOHandlerWebSocketSSL;
 
 { TIdWebSocketServerSSL }
-
-uses IdServerIOHandlerWebsocket, IdServerIOHandlerWebsocketSSL;
 
 procedure TIdWebSocketServerSSL.AfterConstruction;
 begin
   inherited;
-  if IOHandler is TIdServerIOHandlerWebsocket then
+  if IOHandler is TIdServerIOHandlerWebSocket then
     begin
       IOHandler.Free;
-      IOHandler := TIdServerIOHandlerWebsocketSSL.Create(Self);
+      IOHandler := TIdServerIOHandlerWebSocketSSL.Create(Self);
     end;
 end;
 

@@ -1,33 +1,17 @@
-unit IdServerIOHandlerWebsocket;
+unit IdServerIOHandlerWebSocket;
 interface
 {$I wsdefines.pas}
 uses
-  Classes
-  , IdServerIOHandlerStack
-  , IdIOHandlerStack
-  , IdGlobal
-  , IdIOHandler
-  , IdYarn
-  , IdThread
-  , IdSocketHandle
-  //
-  , IdIOHandlerWebsocket
-  {$IFDEF WEBSOCKETSSL}
-  , IdSSLOpenSSL
-  {$ENDIF}
-  ;
+  System.Classes, IdServerIOHandlerStack, IdIOHandlerStack, IdGlobal,
+  IdIOHandler, IdYarn, IdThread, IdSocketHandle, IdIOHandlerWebSocket,
+  IdWebSocketTypes;
 
 type
-  {$IFDEF WEBSOCKETSSL}
-  TIdServerIOHandlerWebsocket = class(TIdServerIOHandlerSSLOpenSSL)
-  {$ELSE}
-  TIdServerIOHandlerWebsocket = class(TIdServerIOHandlerStack)
-  {$ENDIF}
+  TIdServerIOHandlerWebSocket = class(TIdServerIOHandlerStack, ISetWebSocketClosing)
   protected
+    FOnWebSocketClosing: TOnWebSocketClosing;
     procedure InitComponent; override;
-    {$IFDEF WEBSOCKETSSL}
-    // function CreateOpenSSLSocket: TIdSSLIOHandlerSocketOpenSSL; override;
-    {$ENDIF}
+    procedure SetWebSocketClosing(const AValue: TOnWebSocketClosing);
   public
     function Accept(ASocket: TIdSocketHandle; AListenerThread: TIdThread;
       AYarn: TIdYarn): TIdIOHandler; override;
@@ -36,45 +20,38 @@ type
 
 implementation
 
-{ TIdServerIOHandlerStack_Websocket }
-
-{$IFDEF WEBSOCKETSSL}
-//function TIdServerIOHandlerWebsocket.CreateOpenSSLSocket: TIdSSLIOHandlerSocketOpenSSL;
-//begin
-//  Result := TIdIOHandlerWebsocket.Create(nil);
-//end;
-{$ENDIF}
-
-function TIdServerIOHandlerWebsocket.Accept(ASocket: TIdSocketHandle;
+function TIdServerIOHandlerWebSocket.Accept(ASocket: TIdSocketHandle;
   AListenerThread: TIdThread; AYarn: TIdYarn): TIdIOHandler;
 begin
   Result := inherited Accept(ASocket, AListenerThread, AYarn);
   if Result <> nil then
   begin
-    (Result as TIdIOHandlerWebsocket).IsServerSide := True; //server must not mask, only client
-    (Result as TIdIOHandlerWebsocket).UseNagle := False;
+    (Result as TIdIOHandlerWebSocket).IsServerSide := True; // server must not mask, only client
+    (Result as TIdIOHandlerWebSocket).UseNagle := False;
   end;
 end;
 
-procedure TIdServerIOHandlerWebsocket.InitComponent;
+procedure TIdServerIOHandlerWebSocket.InitComponent;
 begin
   inherited InitComponent;
-  {$IFNDEF WEBSOCKETSSL}
-  IOHandlerSocketClass := TIdIOHandlerWebsocket;
-  {$ENDIF}
+  IOHandlerSocketClass := TIdIOHandlerWebsocketServer;
 end;
 
-function TIdServerIOHandlerWebsocket.MakeClientIOHandler(
+function TIdServerIOHandlerWebSocket.MakeClientIOHandler(
   ATheThread: TIdYarn): TIdIOHandler;
 begin
   Result := inherited MakeClientIOHandler(ATheThread);
-  {$IFNDEF WEBSOCKETSSL}
   if Result <> nil then
   begin
-    (Result as TIdIOHandlerWebsocket).IsServerSide := True; //server must not mask, only client
-    (Result as TIdIOHandlerWebsocket).UseNagle := False;
+    (Result as TIdIOHandlerWebSocket).IsServerSide := True; // server must not mask, only client
+    (Result as TIdIOHandlerWebSocket).UseNagle := False;
   end;
-  {$ENDIF}
+end;
+
+procedure TIdServerIOHandlerWebSocket.SetWebSocketClosing(
+  const AValue: TOnWebSocketClosing);
+begin
+  FOnWebSocketClosing := AValue;
 end;
 
 end.

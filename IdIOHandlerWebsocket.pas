@@ -1224,7 +1224,8 @@ begin
          // IO error ; probably connexion closed by peer on protocol error ?
          {$IFDEF DEBUG_WS}
          if DebugHook > 0 then
-           OutputDebugString(PChar(Format('WriteError ThrID:%d, L:%d, R:%d',[getcurrentthreadid,Length(bData)-ioffset,Result])));
+           OutputDebugString(PChar(Format('WriteError ThrID:%d, L:%d, R:%d',[TThread.CurrentThread.ThreadID,Length(bData)-ioffset,Result])));
+
          {$ENDIF}
          break;
        end;

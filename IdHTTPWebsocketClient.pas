@@ -160,7 +160,10 @@ uses
   Winapi.Windows,
 {$ENDIF}
 {$IF DEFINED(POSIX)}
-  Posix.SysSocket, Posix.Fcntl, FMX.Platform,
+  Posix.SysSocket, Posix.Fcntl,
+{$IFDEF DEFINED(ANDROID) or DEFINED(MACOS)}
+  FMX.Platform,
+{$ENDIF}
 {$ENDIF}
   System.StrUtils, System.DateUtils,
   IdWebSocketConsts, IdURI, IdIOHandlerWebSocketSSL, IdIPAddress,

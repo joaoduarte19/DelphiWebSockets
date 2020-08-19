@@ -150,7 +150,10 @@ uses
 {$IF DEFINED(MSWINDOWS)}
   Winapi.Windows,
 {$ELSE}
-  IdSSLOpenSSLHeaders, FMX.Platform,
+  IdSSLOpenSSLHeaders,
+{$IFDEF DEFINED(ANDROID) or DEFINED(MACOS)}
+  FMX.Platform,
+{$ENDIF}
 {$ENDIF}
   System.IOUtils, System.DateUtils, IdStackConsts, IdWebSocketConsts;
 

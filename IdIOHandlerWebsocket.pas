@@ -139,7 +139,10 @@ uses
 {$IF DEFINED(MSWINDOWS)}
   Winapi.Windows, IdWinsock2,
 {$ELSEIF DEFINED(POSIX)}
-  Posix.SysSocket, FMX.Platform,
+  Posix.SysSocket,
+{$IFDEF DEFINED(ANDROID) or DEFINED(MACOS)}
+  FMX.Platform,
+{$ENDIF}
 {$ENDIF}
   IdStream, IdStack, IdExceptionCore, IdResourceStrings, IdResourceStringsCore,
   IdStackConsts, WSDebugger, IdWebSocketConsts;

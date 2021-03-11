@@ -1,22 +1,27 @@
-unit IdServerWebsocketContext;
+unit IdServerWebSocketContext;
 interface
 {$I wsdefines.pas}
 uses
-  Classes, strUtils
-  , IdContext
-  , IdCustomTCPServer
-  , IdCustomHTTPServer
-  //
-  , IdIOHandlerWebsocket
-  , IdServerBaseHandling
-  , IdServerSocketIOHandling
-  ;
+  System.Classes, System.StrUtils, IdContext, IdCustomTCPServer,
+  IdCustomHTTPServer, IdIOHandlerWebSocket, IdServerBaseHandling,
+  IdServerSocketIOHandling, IdWebSocketTypes, IdIIOHandlerWebSocket;
 
 type
   TIdServerWSContext = class;
 
-  TWebSocketUpgradeEvent = procedure(const AContext: TIdServerWSContext; ARequestInfo: TIdHTTPRequestInfo; var Accept:boolean) of object;
-  TWebsocketChannelRequest = procedure(const AContext: TIdServerWSContext; var aType:TWSDataType; const strmRequest, strmResponse: TMemoryStream) of object;
+  TWebSocketUpgradeEvent = procedure(const AContext: TIdServerWSContext;
+    const ARequestInfo: TIdHTTPRequestInfo; var Accept: Boolean) of object;
+
+  TWebSocketChannelRequest = procedure(const AContext: TIdServerWSContext;
+    var aType:TWSDataType; const strmRequest, strmResponse: TMemoryStream) of object;
+
+  TWebSocketConnected    = procedure(const AContext: TIdServerWSContext) of object;
+  TWebSocketDisconnected = procedure(const AContext: TIdServerWSContext) of object;
+
+  TWebSocketConnectionEvents = record
+    ConnectedEvent: TWebSocketConnected;
+    DisconnectedEvent: TWebSocketDisconnected;
+  end;
 
   TIdServerWSContext = class(TIdServerContext)
   private
@@ -30,13 +35,15 @@ type
     FHost: string;
     FWebSocketExtensions: string;
     FCookie: string;
-    //FSocketIOPingSend: Boolean;
-    fOnWebSocketUpgrade: TWebSocketUpgradeEvent;
-    FOnCustomChannelExecute: TWebsocketChannelRequest;
+    FClientIP: string;
+    // FSocketIOPingSend: Boolean;
+    FOnWebSocketUpgrade: TWebSocketUpgradeEvent;
+    FOnCustomChannelExecute: TWebSocketChannelRequest;
     FSocketIO: TIdServerSocketIOHandling;
     FOnDestroy: TIdContextEvent;
+    function GetClientIP: string;
   public
-    function IOHandler: TIdIOHandlerWebsocket;
+    function IOHandler: IIOHandlerWebSocket;
   public
     function IsSocketIO: Boolean;
     property SocketIO: TIdServerSocketIOHandling read FSocketIO write FSocketIO;
@@ -45,6 +52,7 @@ type
   public
     destructor Destroy; override;
 
+    property ClientIP    : string read GetClientIP write FClientIP;
     property Path        : string read FPath write FPath;
     property Query       : string read FQuery write FQuery;
     property ResourceName: string read FResourceName write FResourceName;
@@ -57,11 +65,13 @@ type
     property WebSocketVersion   : Integer read FWebSocketVersion write FWebSocketVersion;
     property WebSocketExtensions: string  read FWebSocketExtensions write FWebSocketExtensions;
   public
-    property OnWebSocketUpgrade: TWebsocketUpgradeEvent read FOnWebSocketUpgrade write FOnWebSocketUpgrade;
-    property OnCustomChannelExecute: TWebsocketChannelRequest read FOnCustomChannelExecute write FOnCustomChannelExecute;
+    property OnWebSocketUpgrade: TWebSocketUpgradeEvent read FOnWebSocketUpgrade write FOnWebSocketUpgrade;
+    property OnCustomChannelExecute: TWebSocketChannelRequest read FOnCustomChannelExecute write FOnCustomChannelExecute;
   end;
 
 implementation
+uses
+  IdIOHandlerWebSocketSSL, IdIOHandlerStack;
 
 { TIdServerWSContext }
 
@@ -72,9 +82,21 @@ begin
   inherited;
 end;
 
-function TIdServerWSContext.IOHandler: TIdIOHandlerWebsocket;
+function TIdServerWSContext.GetClientIP: string;
+var
+  LHandler: TIdIOHandlerStack;
 begin
-  Result := Self.Connection.IOHandler as TIdIOHandlerWebsocket;
+  if FClientIP = '' then
+    begin
+      LHandler := IOHandler as TIdIOHandlerStack;
+      FClientIP := LHandler.Binding.IP;
+    end;
+  Result := FClientIP;
+end;
+
+function TIdServerWSContext.IOHandler: IIOHandlerWebSocket;
+begin
+  Result := Connection.IOHandler as IIOHandlerWebSocket;
 end;
 
 function TIdServerWSContext.IsSocketIO: Boolean;

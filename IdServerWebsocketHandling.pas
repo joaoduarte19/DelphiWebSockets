@@ -1,179 +1,199 @@
-unit IdServerWebsocketHandling;
+unit IdServerWebSocketHandling;
 interface
 {$I wsdefines.pas}
 uses
-  Classes, StrUtils, SysUtils, DateUtils
-  , IdCoderMIME
-  , IdThread
-  , IdContext
-  , IdCustomHTTPServer
+  System.Classes, System.StrUtils, System.SysUtils, System.DateUtils,
+  IdCoderMIME, IdThread, IdContext, IdCustomHTTPServer,
   {$IF CompilerVersion <= 21.0}  //D2010
-  , IdHashSHA1
-  {$else}
-  , IdHashSHA                     //XE3 etc
-  {$IFEND}
-  , IdServerSocketIOHandling
-  //
-  , IdSocketIOHandling
-  , IdServerBaseHandling
-  , IdServerWebsocketContext
-  , IdIOHandlerWebsocket
-  ;
+  IdHashSHA1,
+  {$ELSE}
+  IdHashSHA,                     //XE3 etc
+  {$ENDIF}
+  IdServerSocketIOHandling, IdSocketIOHandling, IdServerBaseHandling,
+  IdServerWebSocketContext, IdIOHandlerWebSocket, IdWebSocketTypes;
 
 type
   TIdServerSocketIOHandling_Ext = class(TIdServerSocketIOHandling)
   end;
 
-  TIdServerWebsocketHandling = class(TIdServerBaseHandling)
+  TIdServerWebSocketHandling = class(TIdServerBaseHandling)
   protected
-    class procedure DoWSExecute(AThread: TIdContext; aSocketIOHandler: TIdServerSocketIOHandling_Ext);virtual;
-    class procedure HandleWSMessage(AContext: TIdServerWSContext; var aType: TWSDataType;
-                                    aRequestStrm, aResponseStrm: TMemoryStream;
-                                    aSocketIOHandler: TIdServerSocketIOHandling_Ext);virtual;
+    class var FExitConnectedCheck: Boolean;
+    class procedure DoWSExecute(AThread: TIdContext;
+      ASocketIOHandler: TIdServerSocketIOHandling_Ext); virtual;
+    class procedure HandleWSMessage(AContext: TIdServerWSContext;
+      var AWSType: TWSDataType; ARequestStream, AResponseStream: TMemoryStream;
+      ASocketIOHandler: TIdServerSocketIOHandling_Ext); virtual;
   public
     class function ProcessServerCommandGet(AThread: TIdServerWSContext;
+      const AConnectionEvents: TWebSocketConnectionEvents;
       ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo): Boolean;
 
     class function CurrentSocket: ISocketIOContext;
+    class property ExitConnectedCheck: Boolean read FExitConnectedCheck
+      write FExitConnectedCheck;
   end;
 
 implementation
+uses
+  IdWebSocketConsts, IdIIOHandlerWebSocket, WSDebugger;
 
-{ TIdServerWebsocketHandling }
+{ TIdServerWebSocketHandling }
 
-class function TIdServerWebsocketHandling.CurrentSocket: ISocketIOContext;
+class function TIdServerWebSocketHandling.CurrentSocket: ISocketIOContext;
 var
-  thread: TIdThreadWithTask;
-  context: TIdServerWSContext;
+  LThread: TIdThreadWithTask;
+  LContext: TIdServerWSContext;
 begin
-  if not (TThread.Currentthread is TIdThreadWithTask) then Exit(nil);
-  thread  := TThread.Currentthread as TIdThreadWithTask;
-  if not (thread.Task is TIdServerWSContext) then Exit(nil);
-  context := thread.Task as TIdServerWSContext;
-  Result  := context.SocketIO.GetSocketIOContext(context);
+  if not (TThread.Current is TIdThreadWithTask) then
+    Exit(nil);
+  LThread  := TThread.Current as TIdThreadWithTask;
+  if not (LThread.Task is TIdServerWSContext) then
+    Exit(nil);
+  LContext := LThread.Task as TIdServerWSContext;
+  Result  := LContext.SocketIO.GetSocketIOContext(LContext);
 end;
 
-class procedure TIdServerWebsocketHandling.DoWSExecute(AThread: TIdContext; aSocketIOHandler: TIdServerSocketIOHandling_Ext);
+class procedure TIdServerWebSocketHandling.DoWSExecute(AThread: TIdContext;
+  ASocketIOHandler: TIdServerSocketIOHandling_Ext);
 var
-  strmRequest, strmResponse: TMemoryStream;
-  wscode: TWSDataCode;
-  wstype: TWSDataType;
-  context: TIdServerWSContext;
-  tstart: TDateTime;
+  LStreamRequest, LStreamResponse: TMemoryStream;
+  LWSCode: TWSDataCode;
+  LWSType: TWSDataType;
+  LContext: TIdServerWSContext;
+  LStart: TDateTime;
+  LHandler: IIOHandlerWebSocket;
 begin
-  context   := nil;
+  LContext   := nil;
   try
-    context := AThread as TIdServerWSContext;
-    //todo: make seperate function + do it after first real write (not header!)
-    if context.IOHandler.BusyUpgrading then
+    LContext := AThread as TIdServerWSContext;
+    LHandler := LContext.IOHandler;
+    //todo: make separate function + do it after first real write (not header!)
+    if LHandler.BusyUpgrading then
     begin
-      context.IOHandler.IsWebsocket   := True;
-      context.IOHandler.BusyUpgrading := False;
+      LHandler.IsWebSocket   := True;
+      LHandler.BusyUpgrading := False;
     end;
     //initial connect
-    if context.IsSocketIO then
+    if LContext.IsSocketIO then
     begin
-      Assert(aSocketIOHandler <> nil);
-      aSocketIOHandler.WriteConnect(context);
+      Assert(ASocketIOHandler <> nil);
+      ASocketIOHandler.WriteConnect(LContext);
     end;
-    AThread.Connection.Socket.UseNagle := False;  //no 200ms delay!
+    AThread.Connection.Socket.UseNagle := False;  // no 200ms delay!
 
-    tstart := Now;
-    context := AThread as TIdServerWSContext;
+    LStart := Now;
 
-    while AThread.Connection.Connected do
+    while LHandler.Connected and not LHandler.ClosedGracefully do
     begin
-      if context.IOHandler.HasData or
-        (AThread.Connection.IOHandler.InputBuffer.Size > 0) or
-         AThread.Connection.IOHandler.Readable(1 * 1000) then     //wait 5s, else ping the client(!)
+      if LHandler.HasData or
+        (LHandler.InputBuffer.Size > 0) or
+         LHandler.Readable(1 * 1000) then     // wait 5s, else ping the client(!)
       begin
-        tstart := Now;
+        LStart := Now;
 
-        strmResponse := TMemoryStream.Create;
-        strmRequest  := TMemoryStream.Create;
+        LStreamResponse := TMemoryStream.Create;
+        LStreamRequest  := TMemoryStream.Create;
         try
 
-          strmRequest.Position := 0;
+          LStreamRequest.Position := 0;
           //first is the type: text or bin
-          wscode := TWSDataCode(context.IOHandler.ReadLongWord);
+          LWSCode := TWSDataCode(LHandler.ReadUInt32);
           //then the length + data = stream
-          context.IOHandler.ReadStream(strmRequest);
-          strmRequest.Position := 0;
+          LHandler.ReadStream(LStreamRequest);
+          LStreamRequest.Position := 0;
+
+          if LWSCode = wdcClose then
+            begin
+              {$IF DEFINED(DEBUG_WS)}
+              WSDebugger.OutputDebugString('Closing server session');
+              {$ENDIF}
+              Break;
+            end;
+
           //ignore ping/pong messages
-          if wscode in [wdcPing, wdcPong] then
+          if LWSCode in [wdcPing, wdcPong] then
           begin
-            if wscode = wdcPing then
-              context.IOHandler.WriteData(nil, wdcPong);
+            if LWSCode = wdcPing then
+              LHandler.WriteData(nil, wdcPong);
             Continue;
           end;
 
-          if wscode = wdcText
-             then wstype := wdtText
-             else wstype := wdtBinary;
+          if LWSCode = wdcText then
+            LWSType := wdtText else
+            LWSType := wdtBinary;
 
-          HandleWSMessage(context, wstype, strmRequest, strmResponse, aSocketIOHandler);
+          HandleWSMessage(LContext, LWSType, LStreamRequest, LStreamResponse, ASocketIOHandler);
 
           //write result back (of the same type: text or bin)
-          if strmResponse.Size > 0 then
+          if LStreamResponse.Size > 0 then
           begin
-            if wstype = wdtText
-               then context.IOHandler.Write(strmResponse, wdtText)
-               else context.IOHandler.Write(strmResponse, wdtBinary)
-          end
-          else context.IOHandler.WriteData(nil, wdcPing);
+            if LWSType = wdtText then
+              LHandler.Write(LStreamResponse, wdtText) else
+              LHandler.Write(LStreamResponse, wdtBinary)
+          end else
+          begin
+            LHandler.WriteData(nil, wdcPing);
+          end;
         finally
-          strmRequest.Free;
-          strmResponse.Free;
+          LStreamRequest.Free;
+          LStreamResponse.Free;
         end;
       end
       //ping after 5s idle
-      else if SecondsBetween(Now, tstart) > 5 then
+      else if SecondsBetween(Now, LStart) > 5 then
       begin
-        tstart := Now;
+        LStart := Now;
         //ping
-        if context.IsSocketIO then
+        if LContext.IsSocketIO then
         begin
           //context.SocketIOPingSend := True;
-          Assert(aSocketIOHandler <> nil);
-          aSocketIOHandler.WritePing(context);
-        end
-        else
-          context.IOHandler.WriteData(nil, wdcPing);
+          Assert(ASocketIOHandler <> nil);
+          ASocketIOHandler.WritePing(LContext);
+        end else
+        begin
+          LHandler.WriteData(nil, wdcPing);
+        end;
       end;
 
     end;
   finally
-    if context.IsSocketIO then
+    if LContext.IsSocketIO then
     begin
-      Assert(aSocketIOHandler <> nil);
-      aSocketIOHandler.WriteDisConnect(context);
+      Assert(ASocketIOHandler <> nil);
+      ASocketIOHandler.WriteDisconnect(LContext);
     end;
-    context.IOHandler.Clear;
+    LContext.IOHandler.Clear;
     AThread.Data := nil;
   end;
 end;
 
-class procedure TIdServerWebsocketHandling.HandleWSMessage(AContext: TIdServerWSContext; var aType:TWSDataType; aRequestStrm, aResponseStrm: TMemoryStream; aSocketIOHandler: TIdServerSocketIOHandling_Ext);
+class procedure TIdServerWebSocketHandling.HandleWSMessage(
+  AContext: TIdServerWSContext; var AWSType:TWSDataType;
+  ARequestStream, AResponseStream: TMemoryStream;
+  ASocketIOHandler: TIdServerSocketIOHandling_Ext);
 begin
   if AContext.IsSocketIO then
   begin
-    aRequestStrm.Position := 0;
-    Assert(aSocketIOHandler <> nil);
-    aSocketIOHandler.ProcessSocketIORequest(AContext, aRequestStrm);
+    ARequestStream.Position := 0;
+    Assert(ASocketIOHandler <> nil);
+    ASocketIOHandler.ProcessSocketIORequest(AContext, ARequestStream);
   end
   else if Assigned(AContext.OnCustomChannelExecute) then
-    AContext.OnCustomChannelExecute(AContext, aType, aRequestStrm, aResponseStrm);
+    AContext.OnCustomChannelExecute(AContext, AWSType, ARequestStream, AResponseStream);
 end;
 
-class function TIdServerWebsocketHandling.ProcessServerCommandGet(
-  AThread: TIdServerWSContext; ARequestInfo: TIdHTTPRequestInfo;
+class function TIdServerWebSocketHandling.ProcessServerCommandGet(
+  AThread: TIdServerWSContext;
+  const AConnectionEvents: TWebSocketConnectionEvents;
+  ARequestInfo: TIdHTTPRequestInfo;
   AResponseInfo: TIdHTTPResponseInfo): Boolean;
 var
-  Accept: Boolean;
-  sValue, squid: string;
-  context: TIdServerWSContext;
-  hash: TIdHashSHA1;
-  guid: TGUID;
+  Accept, LWasWebSocket: Boolean;
+  LConnection, sValue, LSGuid: string;
+  LContext: TIdServerWSContext;
+  LHash: TIdHashSHA1;
+  LGuid: TGUID;
 begin
   (* GET /chat HTTP/1.1
      Host: server.example.com
@@ -194,10 +214,14 @@ begin
      Sec-WebSocket-Version: 13 *)
 
   //Connection: Upgrade
-  if not ContainsText(ARequestInfo.Connection, 'Upgrade') then   //Firefox uses "keep-alive, Upgrade"
+  LConnection := ARequestInfo.Connection;
+  {$IF DEFINED(DEBUG_WS)}
+  WSDebugger.OutputDebugString(Format('Connection string: "%s"', [LConnection]));
+  {$ENDIF}
+  if not ContainsText(LConnection, SUpgrade) then   //Firefox uses "keep-alive, Upgrade"
   begin
     //initiele ondersteuning voor socket.io
-    if SameText(ARequestInfo.document , '/socket.io/1/') then
+    if SameText(ARequestInfo.Document , '/socket.io/1/') then
     begin
       {
       https://github.com/LearnBoost/socket.io-spec
@@ -211,10 +235,9 @@ begin
       AResponseInfo.ResponseNo   := 200;
       AResponseInfo.ResponseText := 'Socket.io connect OK';
 
-      CreateGUID(guid);
-      squid := GUIDToString(guid);
-      AResponseInfo.ContentText  := squid +
-                                    ':15:10:websocket,xhr-polling';
+      CreateGUID(LGuid);
+      LSGuid := GUIDToString(LGuid);
+      AResponseInfo.ContentText  := LSGuid + ':15:10:websocket,xhr-polling';
       AResponseInfo.CloseConnection := False;
       (AThread.SocketIO as TIdServerSocketIOHandling_Ext).NewConnection(AThread);
       //(AThread.SocketIO as TIdServerSocketIOHandling_Ext).NewConnection(squid, AThread.Binding.PeerIP);
@@ -222,49 +245,71 @@ begin
       Result := True;  //handled
     end
     //'/socket.io/1/xhr-polling/2129478544'
-    else if StartsText('/socket.io/1/xhr-polling/', ARequestInfo.document) then
+    else if StartsText('/socket.io/1/xhr-polling/', ARequestInfo.Document) then
     begin
       AResponseInfo.ContentStream   := TMemoryStream.Create;
       AResponseInfo.CloseConnection := False;
 
-      squid := Copy(ARequestInfo.Document, 1 + Length('/socket.io/1/xhr-polling/'), Length(ARequestInfo.document));
-      if ARequestInfo.CommandType = hcGET then
-        (AThread.SocketIO as TIdServerSocketIOHandling_Ext)
-          .ProcessSocketIO_XHR(squid, ARequestInfo.PostStream, AResponseInfo.ContentStream)
-      else if ARequestInfo.CommandType = hcPOST then
-        (AThread.SocketIO as TIdServerSocketIOHandling_Ext)
-          .ProcessSocketIO_XHR(squid, ARequestInfo.PostStream, nil);   //no response expected with POST!
+      LSGuid := Copy(ARequestInfo.Document, 1 + Length('/socket.io/1/xhr-polling/'),
+        Length(ARequestInfo.Document));
+      var LCommandType := ARequestInfo.CommandType;
+      if LCommandType in [hcGET, hcPOST] then
+        begin
+          var LSocketIOHandlingExt := (AThread.SocketIO as TIdServerSocketIOHandling_Ext);
+          var LPostStream := ARequestInfo.PostStream;
+          case LCommandType of
+            hcGET: LSocketIOHandlingExt.ProcessSocketIO_XHR(LSGuid, LPostStream,
+              AResponseInfo.ContentStream);
+            hcPOST: LSocketIOHandlingExt.ProcessSocketIO_XHR(LSGuid, LPostStream,
+              nil);   //no response expected with POST!
+          end;
+        end;
       Result := True;  //handled
-    end
-    else
-      Result := False;  //NOT handled
-  end
-  else
+    end else
+    begin
+      AResponseInfo.ContentText := 'Missing connection info';
+      Exit(False);
+    end;
+  end else
   begin
-    Result  := True;  //handled
-    context := AThread as TIdServerWSContext;
+//    Result  := True;  // commented out due to H2077 Value assigned never used...
+    LContext := AThread as TIdServerWSContext;
 
-    if Assigned(Context.OnWebSocketUpgrade) then
+    if Assigned(LContext.OnWebSocketUpgrade) then
      begin
         Accept := True;
-        Context.OnWebSocketUpgrade(Context,ARequestInfo,Accept);
-        if not Accept then Abort;
+        LContext.OnWebSocketUpgrade(LContext, ARequestInfo, Accept);
+        if not Accept then
+          begin
+            AResponseInfo.ContentText := 'Failed upgrade.';
+            Exit(False);
+          end;
      end;
 
-    //Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==
-    sValue := ARequestInfo.RawHeaders.Values['sec-websocket-key'];
-    //"The value of this header field MUST be a nonce consisting of a randomly
+    // Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==
+    sValue := ARequestInfo.RawHeaders.Values[SWebSocketKey];
+    // "The value of this header field MUST be a nonce consisting of a randomly
     // selected 16-byte value that has been base64-encoded"
     if (sValue <> '') then
     begin
       if (Length(TIdDecoderMIME.DecodeString(sValue)) = 16) then
-        context.WebSocketKey := sValue
-      else
-        Abort; //invalid length
-    end
-    else
-      //important: key must exists, otherwise stop!
-      Abort;
+        LContext.WebSocketKey := sValue else
+        begin
+          {$IF DEFINED(DEBUG_WS)}
+          WSDebugger.OutputDebugString('Server', 'Invalid length');
+          {$ENDIF}
+          AResponseInfo.ContentText := 'Invalid length';
+          Exit(False); //invalid length
+        end;
+    end else
+    begin
+      // important: key must exists, otherwise stop!
+      {$IF DEFINED(DEBUG_WS)}
+      WSDebugger.OutputDebugString('Server', 'Aborting connection');
+      {$ENDIF}
+      AResponseInfo.ContentText := 'Key doesn''t exist';
+      Exit(False);
+    end;
 
     (*
      ws-URI = "ws:" "//" host [ ":" port ] path [ "?" query ]
@@ -277,76 +322,115 @@ begin
           http/https URI that, when parsed, has a /resource name/, /host/,
           and /port/ that match the corresponding ws/wss URI.
     *)
-    context.ResourceName := ARequestInfo.Document;
+    LContext.ResourceName := ARequestInfo.Document;
     if ARequestInfo.UnparsedParams <> '' then
-      context.ResourceName := context.ResourceName + '?' +
+      LContext.ResourceName := LContext.ResourceName + '?' +
                               ARequestInfo.UnparsedParams;
-    //seperate parts
-    context.Path         := ARequestInfo.Document;
-    context.Query        := ARequestInfo.UnparsedParams;
+    // separate parts
+    LContext.Path         := ARequestInfo.Document;
+    LContext.Query        := ARequestInfo.UnparsedParams;
 
-    //Host: server.example.com
-    context.Host   := ARequestInfo.RawHeaders.Values['host'];
-    //Origin: http://example.com
-    context.Origin := ARequestInfo.RawHeaders.Values['origin'];
-    //Cookie: __utma=99as
-    context.Cookie := ARequestInfo.RawHeaders.Values['cookie'];
+    // Host: server.example.com
+    LContext.Host   := ARequestInfo.RawHeaders.Values[SHTTPHostHeader];
+    // Origin: http://example.com
+    LContext.Origin := ARequestInfo.RawHeaders.Values[SHTTPOriginHeader];
+    // Cookie: __utma=99as
+    LContext.Cookie := ARequestInfo.RawHeaders.Values[SHTTPCookieHeader];
 
-    //Sec-WebSocket-Version: 13
-    //"The value of this header field MUST be 13"
-    sValue := ARequestInfo.RawHeaders.Values['sec-websocket-version'];
+    // Sec-WebSocket-Version: 13
+    // "The value of this header field MUST be 13"
+    sValue := ARequestInfo.RawHeaders.Values[SWebSocketVersion];
     if (sValue <> '') then
     begin
-      context.WebSocketVersion := StrToIntDef(sValue, 0);
+      LContext.WebSocketVersion := StrToIntDef(sValue, 0);
 
-      if context.WebSocketVersion < 13 then
-        Abort;  //must be at least 13
-    end
-    else
-      Abort; //must exist
+      if LContext.WebSocketVersion < 13 then
+        begin
+          {$IF DEFINED(DEBUG_WS)}
+          WSDebugger.OutputDebugString('Server', 'WebSocket version < 13');
+          {$ENDIF}
+          AResponseInfo.ContentText := 'Wrong version';
+          Exit(False); // Abort;  //must be at least 13
+        end;
+    end else
+    begin
+      {$IF DEFINED(DEBUG_WS)}
+      WSDebugger.OutputDebugString('Server', 'WebSocket version missing');
+      {$ENDIF}
+      AResponseInfo.ContentText := 'Missing version';
+      Exit(False); // Abort; //must exist
+    end;
 
-    context.WebSocketProtocol   := ARequestInfo.RawHeaders.Values['sec-websocket-protocol'];
-    context.WebSocketExtensions := ARequestInfo.RawHeaders.Values['sec-websocket-extensions'];
+    LContext.WebSocketProtocol   := ARequestInfo.RawHeaders.Values[SWebSocketProtocol];
+    LContext.WebSocketExtensions := ARequestInfo.RawHeaders.Values[SWebSocketExtensions];
 
     //Response
     (* HTTP/1.1 101 Switching Protocols
        Upgrade: websocket
        Connection: Upgrade
        Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo= *)
-    AResponseInfo.ResponseNo         := 101;
-    AResponseInfo.ResponseText       := 'Switching Protocols';
+    AResponseInfo.ResponseNo         := CSwitchingProtocols;
+    AResponseInfo.ResponseText       := SSwitchingProtocols;
     AResponseInfo.CloseConnection    := False;
     //Connection: Upgrade
-    AResponseInfo.Connection         := 'Upgrade';
+    AResponseInfo.Connection         := SUpgrade;
     //Upgrade: websocket
-    AResponseInfo.CustomHeaders.Values['Upgrade'] := 'websocket';
+    AResponseInfo.CustomHeaders.Values[SUpgrade] := SWebSocket;
 
     //Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=
-    sValue := Trim(context.WebSocketKey) +                   //... "minus any leading and trailing whitespace"
-              '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';        //special GUID
-    hash := TIdHashSHA1.Create;
+    sValue := Trim(LContext.WebSocketKey) +  //... "minus any leading and trailing whitespace"
+              SWebSocketGUID;                //special GUID
+    LHash := TIdHashSHA1.Create;
     try
       sValue := TIdEncoderMIME.EncodeBytes(                   //Base64
-                     hash.HashString(sValue) );               //SHA1
+                     LHash.HashString(sValue) );               //SHA1
     finally
-      hash.Free;
+      LHash.Free;
     end;
-    AResponseInfo.CustomHeaders.Values['Sec-WebSocket-Accept'] := sValue;
+    AResponseInfo.CustomHeaders.Values[SWebSocketAccept] := sValue;
 
-    //send same protocol back?
-    AResponseInfo.CustomHeaders.Values['Sec-WebSocket-Protocol']   := context.WebSocketProtocol;
-    //we do not support extensions yet (gzip deflate compression etc)
-    //AResponseInfo.CustomHeaders.Values['Sec-WebSocket-Extensions'] := context.WebSocketExtensions;
-    //http://www.lenholgate.com/blog/2011/07/websockets---the-deflate-stream-extension-is-broken-and-badly-designed.html
-    //but is could be done using idZlib.pas and DecompressGZipStream etc
+    // send same protocol back?
+    AResponseInfo.CustomHeaders.Values[SWebSocketProtocol]   := LContext.WebSocketProtocol;
+    // we do not support extensions yet (gzip deflate compression etc)
+    // AResponseInfo.CustomHeaders.Values['Sec-WebSocket-Extensions'] := context.WebSocketExtensions;
+    // http://www.lenholgate.com/blog/2011/07/websockets---the-deflate-stream-extension-is-broken-and-badly-designed.html
+    // but is could be done using idZlib.pas and DecompressGZipStream etc
 
-    //send response back
-    context.IOHandler.InputBuffer.Clear;
-    context.IOHandler.BusyUpgrading := True;
+    // send response back
+    LContext.IOHandler.InputBuffer.Clear;
+    LContext.IOHandler.BusyUpgrading := True;
     AResponseInfo.WriteHeader;
 
-    //handle all WS communication in seperate loop
-    DoWSExecute(AThread, (context.SocketIO as TIdServerSocketIOHandling_Ext) );
+    // handle all WS communication in separate loop
+    {$IF DEFINED(DEBUG_WS)}
+    WSDebugger.OutputDebugString('Server', 'Entering DoWSExecute');
+    {$ENDIF}
+    LWasWebSocket := False;
+    try
+// This needs to be protected, otherwise, the server will
+// become unresponsive after 3 disconnections initiated by the client
+      LWasWebSocket := True;
+      if Assigned(AConnectionEvents.ConnectedEvent) then
+        AConnectionEvents.ConnectedEvent(AThread);
+      DoWSExecute(AThread, (LContext.SocketIO as TIdServerSocketIOHandling_Ext));
+    except
+      {$IF DEFINED(DEBUG_WS)}
+      on E: Exception do
+        begin
+          var LMsg := Format('DoWSExecute Thread: %.8x Exception: %s', [
+            TThread.Current.ThreadID, E.Message]);
+          WSDebugger.OutputDebugString('Server', LMsg);
+        end;
+      {$ENDIF}
+    end;
+    if LWasWebSocket and Assigned(AConnectionEvents.DisconnectedEvent) then
+      AConnectionEvents.DisconnectedEvent(AThread);
+    AResponseInfo.CloseConnection := True;
+    {$IF DEFINED(DEBUG_WS)}
+    var LMsg := Format('DoWSExecute Thread: %.8x done', [TThread.Current.ThreadID]);
+    WSDebugger.OutputDebugString('Server', LMsg);
+    {$ENDIF}
+    Result := True;
   end;
 end;
 

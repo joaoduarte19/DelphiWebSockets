@@ -1,4 +1,4 @@
-unit IdIOHandlerWebSocket;
+unit IdIOHandlerWebSocketSSL;
 {.$DEFINE DEBUG_WS}
 {$WARN SYMBOL_DEPRECATED OFF}
 {$WARN SYMBOL_PLATFORM OFF}
@@ -13,18 +13,18 @@ uses
 
 type
 
-  TIdIOHandlerWebSocket   = class;
   EIdWebSocketHandleError = class(EIdSocketHandleError);
 
   {$IF CompilerVersion >= 26}   //XE5
   TIdTextEncoding = IIdTextEncoding;
   {$ENDIF}
 
-  TIdIOHandlerWebSocket = class(TIdIOHandlerStack, IIOHandlerWebSocket)
+  TIdIOHandlerWebSocketSSL = class(TIdSSLIOHandlerSocketOpenSSL,
+    IIOHandlerWebSocket, ISetWebSocketClosing)
   protected
     FBusyUpgrading: Boolean;
     FCloseCode, FCloseTimeout: Integer;
-    FCloseCodeSend: Boolean;
+    FCloseCodeSend, FCloseReceived: Boolean;
     FCloseReason, FPeerCloseReason, FRoleName: string;
     FClosing: Boolean;
     FExtensionBits: TWSExtensionBits;
@@ -42,6 +42,9 @@ type
     FWSInputBuffer: TIdBuffer;
 
     class var FUseSingleWriteThread: Boolean;
+
+    procedure DoBeforeConnect(ASender: TIdSSLIOHandlerSocketOpenSSL); override;
+
     function  GetBinding: TIdSocketHandle;
     function  GetBusyUpgrading: Boolean;
     function  GetClosedGracefully: Boolean;
@@ -63,11 +66,13 @@ type
     procedure SetOnNotifyClosing(const Value: TProc);
     procedure SetUseNagle(const Value: Boolean);
 
-    function InternalReadDataFromSource(var VBuffer: TIdBytes; ARaiseExceptionOnTimeout: Boolean): Integer;
+    function InternalReadDataFromSource(var VBuffer: TIdBytes;
+      ARaiseExceptionOnTimeout: Boolean): Integer;
     function ReadDataFromSource(var VBuffer: TIdBytes): Integer; override;
     function WriteDataToTarget (const ABuffer: TIdBytes; const AOffset, ALength: Integer): Integer; override;
 
-    function ReadFrame(out aFIN, aRSV1, aRSV2, aRSV3: boolean; out aDataCode: TWSDataCode; out aData: TIdBytes): Integer;
+    function ReadFrame(out aFIN, aRSV1, aRSV2, aRSV3: boolean;
+      out aDataCode: TWSDataCode; out aData: TIdBytes): Integer;
     function ReadMessage(var aBuffer: TIdBytes; out aDataCode: TWSDataCode): Integer;
 
     {$IF CompilerVersion >= 26}   //XE5
@@ -76,13 +81,16 @@ type
     function UTF8Encoding: TEncoding;
     {$ENDIF}
     procedure InitComponent; override;
+    procedure SetWebSocketClosing(const AValue: TOnWebSocketClosing);
+
+    procedure EnsureIsWebSocket;
   public
-    function WriteData(const aData: TIdBytes; aType: TWSDataCode;
-                        aFIN: boolean = true; aRSV1: boolean = false; aRSV2: boolean = false; aRSV3: boolean = false): integer;
+    ExitConnectedCheck: Boolean;
+
     property BusyUpgrading : Boolean read FBusyUpgrading write FBusyUpgrading;
+    property ClientExtensionBits : TWSExtensionBits read FExtensionBits write FExtensionBits;
     property IsWebSocket   : Boolean read FIsWebSocket   write SetIsWebSocket;
     property IsServerSide  : Boolean read FIsServerSide  write FIsServerSide;
-    property ClientExtensionBits : TWSExtensionBits read FExtensionBits write FExtensionBits;
     property RoleName: string read FRoleName write FRoleName;
 
     destructor Destroy; override;
@@ -98,6 +106,7 @@ type
 
     procedure Close; override;
     procedure CloseWithReason(const AReason: string);
+    ///<summary> Closing is true if we initiated the close. </summary>
     property  Closing    : Boolean read FClosing;
     property  CloseCode  : Integer read FCloseCode   write FCloseCode;
     property  CloseReason: string  read FCloseReason write FCloseReason;
@@ -107,14 +116,18 @@ type
     property  OnWebSocketClosing: TOnWebSocketClosing read FOnWebSocketClosing
       write FOnWebSocketClosing;
 
-    //text/string writes
+    // text/string writes
     procedure Write(const AOut: string; AEncoding: TIdTextEncoding = nil); overload; override;
-    procedure WriteLn(const AOut: string; AEncoding: TIdTextEncoding = nil); overload; override;
-    procedure WriteLnRFC(const AOut: string = ''; AEncoding: TIdTextEncoding = nil); override;
-    procedure Write(AValue: TStrings; AWriteLinesCount: Boolean = False; AEncoding: TIdTextEncoding = nil); overload; override;
+    procedure Write(AValue: TStrings; AWriteLinesCount: Boolean = False;
+      AEncoding: TIdTextEncoding = nil); overload; override;
     procedure Write(AStream: TStream; aType: TWSDataType); overload;
     procedure WriteBin(const ABytes: TArray<Byte>);
     procedure WriteBufferFlush(AByteCount: Integer); override;
+    function WriteData(const aData: TIdBytes; aType: TWSDataCode;
+      aFIN: boolean = true; aRSV1: boolean = false; aRSV2: boolean = false;
+      aRSV3: boolean = false): integer;
+    procedure WriteLn(const AOut: string; AEncoding: TIdTextEncoding = nil); overload; override;
+    procedure WriteLnRFC(const AOut: string = ''; AEncoding: TIdTextEncoding = nil); override;
 
     procedure ReadBytes(var VBuffer: TIdBytes; AByteCount: Integer; AAppend: Boolean = True); override;
 
@@ -123,12 +136,8 @@ type
     property  OnNotifyClosed: TProc read GetOnNotifyClosed write SetOnNotifyClosed;
     property  OnNotifyClosing: TProc read GetOnNotifyClosing write SetOnNotifyClosing;
 
-    class property UseSingleWriteThread: Boolean read FUseSingleWriteThread write FUseSingleWriteThread;
-  end;
-
-  TIdIOHandlerWebSocketServer = class(TIdIOHandlerWebSocket)
-  protected
-    procedure InitComponent; override;
+    class property UseSingleWriteThread: Boolean read FUseSingleWriteThread
+      write FUseSingleWriteThread;
   end;
 
   TIdBuffer_Ext = class(TIdBuffer);
@@ -136,16 +145,17 @@ type
 implementation
 uses
   System.Math,
+  IdStream, IdStack, IdExceptionCore,
+  IdResourceStrings, IdResourceStringsCore, WSDebugger,
 {$IF DEFINED(MSWINDOWS)}
-  Winapi.Windows, IdWinsock2,
-{$ELSEIF DEFINED(POSIX)}
-  Posix.SysSocket,
+  Winapi.Windows,
+{$ELSE}
+  IdSSLOpenSSLHeaders,
 {$IFDEF DEFINED(ANDROID) or DEFINED(MACOS)}
   FMX.Platform,
 {$ENDIF}
 {$ENDIF}
-  IdStream, IdStack, IdExceptionCore, IdResourceStrings, IdResourceStringsCore,
-  IdStackConsts, WSDebugger, IdWebSocketConsts;
+  System.IOUtils, System.DateUtils, IdStackConsts, IdWebSocketConsts;
 
 function BytesToStringRaw(const AValue: TIdBytes; aSize: Integer = -1): string;
 var
@@ -157,8 +167,12 @@ begin
     if (AValue[i] = 0) and (aSize < 0) then
       Exit;
 
-    if (AValue[i] < 33) or ( (AValue[i] > 126) and (AValue[i] < 161) ) then
-      Result := Result + '#' + IntToStr(AValue[i]) else
+    if (AValue[i] < 33) or
+       ( (AValue[i] > 126) and
+         (AValue[i] < 161) )
+    then
+      Result := Result + '#' + IntToStr(AValue[i])
+    else
       Result := Result + Char(AValue[i]);
 
     if (aSize > 0) and (i > aSize) then
@@ -166,21 +180,34 @@ begin
   end;
 end;
 
-{ TIdIOHandlerStack_WebSocket }
+//{ TIOWSPayloadInfo }
+//
+//procedure TIOWSPayloadInfo.Initialize(iTextMode: Boolean; iPayloadLength: Cardinal);
+//begin
+//  PayloadLength := iPayloadLength;
+//  if iTextMode then
+//    DataCode := wdcText else
+//    DataCode := wdcBinary;
+//end;
+//
+//procedure TIOWSPayloadInfo.Clear;
+//begin
+//  PayloadLength := 0;
+//  DataCode := wdcBinary;
+//end;
+//
+//function TIOWSPayloadInfo.DecLength(AValue: Cardinal):boolean;
+//begin
+//  if PayloadLength >= AValue then
+//   begin
+//     PayloadLength := PayloadLength - AValue;
+//   end
+//   else PayloadLength := 0;
+//  DataCode := wdcContinuation;
+//  Result := PayloadLength = 0;
+//end;
 
-procedure TIdIOHandlerWebSocket.InitComponent;
-begin
-  inherited ;
-  FMessageStream := TMemoryStream.Create;
-  FWSInputBuffer := TIdBuffer.Create;
-  FLock := TCriticalSection.Create;
-  FSelectLock := TCriticalSection.Create;
-  {$IFDEF WEBSOCKETSSL}
-  //SendBufferSize := 15 * 1024;
-  {$ENDIF}
-end;
-
-procedure TIdIOHandlerWebSocket.Clear;
+procedure TIdIOHandlerWebSocketSSL.Clear;
 begin
   FWSInputBuffer.Clear;
   InputBuffer.Clear;
@@ -197,87 +224,189 @@ begin
   FPendingWriteCount := 0;
 end;
 
-procedure TIdIOHandlerWebSocket.Close;
+procedure TIdIOHandlerWebSocketSSL.Close;
+const
+  SO_ERROR            = $1007;      // get error status and clear
 var
-  iaWriteBuffer: TIdBytes;
-  sReason: UTF8String;
-  iOptVal: Integer;
+  LWriteBuffer: TIdBytes;
+  LReason: UTF8String;
+  LBufferLen, iOptVal: Integer;
   LConnected: Boolean;
 begin
   try
-    //valid connection?
+    // valid connection?
     LConnected := Opened and SourceIsAvailable and not ClosedGracefully;
 
-    //no socket error? connection closed by software abort, connection reset by peer, etc
+    // no socket error? connection closed by software abort, connection reset by peer, etc
     try
-      GStack.GetSocketOption(Binding.Handle, Id_SOL_SOCKET, SO_ERROR, iOptVal);
+      iOptVal := 1; // random value, as long as it's not 0.
+{$IF DEFINED(MSWINDOWS)}
+      if LConnected then
+        GStack.GetSocketOption(Binding.Handle, Id_SOL_SOCKET, SO_ERROR, iOptVal);
       LConnected := LConnected and (iOptVal = 0);
+{$ELSEIF DEFINED(POSIX)}
+      if LConnected then
+        Binding.GetSockOpt(Id_SOL_SOCKET, SO_ERROR, iOptVal);
+      LConnected := LConnected and (iOptVal = 0);
+{$ENDIF}
     except
       LConnected := False;
     end;
 
+//    LConnected := LConnected and
+//                  (IdWinsock2.getsockopt(Self.Binding.Handle, SOL_SOCKET, SO_ERROR, PAnsiChar(@iOptVal), iOptLen)) and
+//                  (iOptVal = 0);
+
     if LConnected and IsWebSocket then
     begin
-      //close message must be responded with a close message back
-      //or initiated with a close message
+
+      // close message must be responded with a close message back
+      // or initiated with a close message
       if not FCloseCodeSend then
       begin
         FCloseCodeSend  := True;
-
-        //we initiate the close? then write reason etc
-        if not Closing then
+{$IF DEFINED(DEBUG_WS)}
+        WSDebugger.OutputDebugString(RoleName, 'FCloseReceived: ' + FCloseReceived.ToString(TUseBoolStrs.True));
+{$ENDIF}
+        // we initiate the close? then write reason etc
+        // we didn't receive the close, so send out our reason
+        if not FClosing then
         begin
-          SetLength(iaWriteBuffer, 2);
+          // the first party that sends the close enters this code
+{$IF DEFINED(DEBUG_WS)}
+          WSDebugger.OutputDebugString(RoleName, 'Closing');
+{$ENDIF}
+          LBufferLen := 2;
+          if CloseReason <> '' then
+            begin
+              LReason := UTF8String(Format('%s - %s', [RoleName, CloseReason]));
+              Inc(LBufferLen, Length(LReason));
+            end else
+            begin
+              LReason := UTF8String(Format('%s - doesn''t wanna talk', [RoleName]));
+              Inc(LBufferLen, Length(LReason));
+            end;
+{$IF DEFINED(DEBUG_WS)}
+          WSDebugger.OutputDebugString(RoleName, Format('reason: "%s"', [LReason]));
+{$ENDIF}
+          SetLength(LWriteBuffer, LBufferLen);
           if CloseCode < C_FrameClose_Normal then
             CloseCode := C_FrameClose_Normal;
-          iaWriteBuffer[0] := Byte(CloseCode shr 8);
-          iaWriteBuffer[1] := Byte(CloseCode);
-          if CloseReason <> '' then
+          LWriteBuffer[0] := Byte(CloseCode shr 8);
+          LWriteBuffer[1] := Byte(CloseCode);
+          if LReason <> '' then
           begin
-            sReason := utf8string(CloseReason);
-            SetLength(iaWriteBuffer, Length(iaWriteBuffer) + Length(sReason));
-            Move(sReason[1], iaWriteBuffer[2], Length(sReason));
+            Move(LReason[1], LWriteBuffer[2], Length(LReason));
           end;
-        end
-        else
+        end else
         begin
-          //just send normal close response back
-          SetLength(iaWriteBuffer, 2);
-          iaWriteBuffer[0] := Byte(C_FrameClose_Normal shr 8);
-          iaWriteBuffer[1] := Byte(C_FrameClose_Normal);
+          // we received the close from the other party, so just send back ok...
+          // just send normal close response back
+{$IF DEFINED(DEBUG_WS)}
+          var LMsg := Format('Thread %s sending response to close...', [TThread.Current.ThreadID.ToString]);
+          WSDebugger.OutputDebugString(RoleName, LMsg);
+{$ENDIF}
+          LBufferLen := 2;
+          LReason := UTF8String(Format('%s - ok', [RoleName]));
+          Inc(LBufferLen, Length(LReason));
+{$IF DEFINED(DEBUG_WS)}
+          WSDebugger.OutputDebugString(RoleName, Format('reason: "%s"', [LReason]));
+{$ENDIF}
+          SetLength(LWriteBuffer, LBufferLen);
+          LWriteBuffer[0] := Byte(C_FrameClose_Normal shr 8);
+          LWriteBuffer[1] := Byte(C_FrameClose_Normal);
+          if LReason <> '' then
+          begin
+            Move(LReason[1], LWriteBuffer[2], Length(LReason));
+          end;
         end;
 
-        WriteData(iaWriteBuffer, wdcClose);  //send close + code back
+        WriteData(LWriteBuffer, wdcClose);  //send close + code back
+        WriteBufferFlush;
+{$IF DEFINED(DEBUG_WS)}
+        WSDebugger.OutputDebugString(RoleName, 'Close sent!');
+{$ENDIF}
       end;
 
-      //we did initiate the close? then wait (a little) for close response
-      if not Closing then
-      begin
-        FClosing := True;
-        CheckForDisconnect();
-        //wait till client respond with close message back
-        //but a pending message can be in the buffer, so process this too
-        while ReadFromSource(False{no disconnect error}, 1 * 1000, False) > 0 do ; //response within 1s?
-      end;
+{$IF DEFINED(DEBUG_WS)}
+      WSDebugger.OutputDebugString(Format('%s ConnectTimeout: %d ReadTimeout: %d SingleWriteThread: %s',
+        [RoleName, ConnectTimeout, ReadTimeout, BoolToStr(UseSingleWriteThread, True)]));
+
+      // we did initiate the close? then wait (a little) for close response
+      WSDebugger.OutputDebugString(RoleName, 'Closing: ' + BoolToStr(Closing, True));
+{$ENDIF}
+      // not Closing = we initiated the close
+      // so, wait for the other party to send their close response...
+      if not FClosing then
+        begin
+{$IF DEFINED(DEBUG_WS)}
+          var LMsg := Format('Thread %s waiting for response...', [TThread.Current.ThreadID.ToString]);
+          WSDebugger.OutputDebugString(RoleName, LMsg);
+          var LoopCount := 0;
+{$ENDIF}
+          CheckForDisconnect();
+          //wait till client respond with close message back
+          //but a pending message can be in the buffer, so process this too
+          while (not FCloseReceived) and (not ClosedGracefully) do
+            begin
+              FClosing := True; // Ensure this is not called back...
+              // ReadMessage will be called in ReadFromSource which
+              // will cause a re-entrant call to Close if we're not careful...
+              try
+                ReadFromSource(False{no disconnect error}, 1000, False); //response within 1s?
+              except
+                on E: Exception do
+                  begin
+{$IF DEFINED(DEBUG_WS)}
+                    WSDebugger.OutputDebugString(Format('LClose1Exception %s', [E.Message]));
+{$ENDIF}
+                    FClosedGracefully := True;
+                  end;
+              end;
+              if FCloseReceived then
+                Break;
+{$IF DEFINED(DEBUG_WS)}
+              Inc(LoopCount);
+{$ENDIF}
+            end;
+{$IF DEFINED(DEBUG_WS)}
+          WSDebugger.OutputDebugString(RoleName, 'CloseResponse received - '+FCloseReceived.ToString(TUseBoolStrs.True));
+          WSDebugger.OutputDebugString('LoopCount is: '+LoopCount.ToString);
+{$ENDIF}
+        end;
+      InputBuffer.Clear; // Otherwise, Connected (up in ancestor) will return true...
+{$IF DEFINED(DEBUG_WS)}
+      WSDebugger.OutputDebugString(RoleName, 'if not Closing done');
+{$ENDIF}
     end;
   except
-    //ignore, it's possible that the client is disconnected already (crashed etc)
+    // ignore, it's possible that the client is disconnected already (crashed etc)
+{$IF DEFINED(DEBUG_WS)}
+    on E: Exception do
+      WSDebugger.OutputDebugString(RoleName, 'exception: ' + E.Message);
+{$ENDIF}
   end;
 
   IsWebSocket   := False;
   BusyUpgrading := False;
-  inherited Close;
+  try
+    inherited Close;
+  except
+{$IF DEFINED(DEBUG_WS)}
+    WSDebugger.OutputDebugString('LClose2Exception');
+{$ENDIF}
+  end;
 end;
 
-procedure TIdIOHandlerWebSocket.CloseWithReason(const AReason: string);
+procedure TIdIOHandlerWebSocketSSL.CloseWithReason(const AReason: string);
 begin
   FCloseReason := AReason;
   Close;
 end;
 
-function TIdIOHandlerWebSocket.Connected: Boolean;
+function TIdIOHandlerWebSocketSSL.Connected: Boolean;
 begin
-  Lock;
+  Lock; // chuacw: is there a need to lock to check for connection???
   try
     Result := inherited Connected;
   finally
@@ -285,7 +414,7 @@ begin
   end;
 end;
 
-destructor TIdIOHandlerWebSocket.Destroy;
+destructor TIdIOHandlerWebSocketSSL.Destroy;
 begin
   TIdStack.DecUsage;
 
@@ -302,95 +431,107 @@ begin
   inherited;
 end;
 
-function TIdIOHandlerWebSocket.GetBinding: TIdSocketHandle;
+procedure TIdIOHandlerWebSocketSSL.DoBeforeConnect(ASender: TIdSSLIOHandlerSocketOpenSSL);
+begin
+  inherited;
+//  if Assigned(fSSLContext) then FreeAndNil(fSSLContext);
+//  if Assigned(fSSLSocket) then FreeAndNil(fSSLSocket);
+//  Init;
+end;
+
+procedure TIdIOHandlerWebSocketSSL.EnsureIsWebSocket;
+begin
+  if not IsWebSocket then
+    raise EIdWebSocketException.Create('Needs to be a web socket before sending!');
+end;
+
+function TIdIOHandlerWebSocketSSL.GetBinding: TIdSocketHandle;
 begin
   Result := FBinding;
 end;
 
-function TIdIOHandlerWebSocket.GetBusyUpgrading: Boolean;
+function TIdIOHandlerWebSocketSSL.GetBusyUpgrading: Boolean;
 begin
   Result := FBusyUpgrading;
 end;
 
-function TIdIOHandlerWebSocket.GetClosedGracefully: Boolean;
+function TIdIOHandlerWebSocketSSL.GetClosedGracefully: Boolean;
 begin
   Result := FClosedGracefully;
 end;
 
-function TIdIOHandlerWebSocket.GetCloseReason: string;
+function TIdIOHandlerWebSocketSSL.GetCloseReason: string;
 begin
   Result := FCloseReason;
 end;
 
-function TIdIOHandlerWebSocket.GetConnected: Boolean;
+function TIdIOHandlerWebSocketSSL.GetConnected: Boolean;
 begin
   Result := Self.Connected;
 end;
 
-function TIdIOHandlerWebSocket.GetInputBuffer: TIdBuffer;
+function TIdIOHandlerWebSocketSSL.GetInputBuffer: TIdBuffer;
 begin
   Result := FInputBuffer;
 end;
 
-function TIdIOHandlerWebSocket.GetIsWebSocket: Boolean;
+function TIdIOHandlerWebSocketSSL.GetIsWebSocket: Boolean;
 begin
   Result := FIsWebSocket;
 end;
 
-function TIdIOHandlerWebSocket.GetLastActivityTime: TDateTime;
+function TIdIOHandlerWebSocketSSL.GetLastActivityTime: TDateTime;
 begin
   Result := FLastActivityTime;
 end;
 
-function TIdIOHandlerWebSocket.GetLastPingTime: TDateTime;
+function TIdIOHandlerWebSocketSSL.GetLastPingTime: TDateTime;
 begin
   Result := FLastPingTime;
 end;
 
-function  TIdIOHandlerWebSocket.GetOnNotifyClosed: TProc;
+function  TIdIOHandlerWebSocketSSL.GetOnNotifyClosed: TProc;
 begin
   Result := FOnNotifyClosed;
 end;
 
-function  TIdIOHandlerWebSocket.GetOnNotifyClosing: TProc;
+function  TIdIOHandlerWebSocketSSL.GetOnNotifyClosing: TProc;
 begin
   Result := FOnNotifyClosing;
 end;
 
-procedure TIdIOHandlerWebSocket.SetOnNotifyClosed(const Value: TProc);
+procedure TIdIOHandlerWebSocketSSL.SetOnNotifyClosed(const Value: TProc);
 begin
   FOnNotifyClosed := Value;
 end;
 
-procedure TIdIOHandlerWebSocket.SetOnNotifyClosing(const Value: TProc);
+procedure TIdIOHandlerWebSocketSSL.SetOnNotifyClosing(const Value: TProc);
 begin
   FOnNotifyClosing := Value;
 end;
 
-function TIdIOHandlerWebSocket.HasData: Boolean;
+function TIdIOHandlerWebSocketSSL.HasData: Boolean;
 begin
-  //buffered data available? (more data from previous read)
+  // buffered data available? (more data from previous read)
   Result := (FWSInputBuffer.Size > 0) or not InputBufferIsEmpty;
 end;
 
-function TIdIOHandlerWebSocket.InternalReadDataFromSource(
+function TIdIOHandlerWebSocketSSL.InternalReadDataFromSource(
   var VBuffer: TIdBytes; ARaiseExceptionOnTimeout: Boolean): Integer;
 begin
   SetLength(VBuffer, 0);
 
   CheckForDisconnect;
-  if not Readable(ReadTimeout) or
-     not Opened or
-     not SourceIsAvailable then
+  if not Readable(ReadTimeout) or not Opened or not SourceIsAvailable then
   begin
-    CheckForDisconnect; //disconnected during wait in "Readable()"?
+    CheckForDisconnect; // disconnected during wait in "Readable()"?
     if not Opened then
-      raise EIdNotConnected.Create(RSNotConnected) else
-    if not SourceIsAvailable then
+      raise EIdNotConnected.Create(RSNotConnected)
+    else if not SourceIsAvailable then
       raise EIdClosedSocket.Create(RSStatusDisconnected);
-    GStack.CheckForSocketError(GStack.WSGetLastError); //check for socket error
+    GStack.CheckForSocketError(GStack.WSGetLastError); // check for socket error
     if ARaiseExceptionOnTimeout then
-      raise EIdReadTimeout.Create(RSIdNoDataToRead)  //exit, no data can be received
+      raise EIdReadTimeout.Create(RSIdNoDataToRead)  // exit, no data can be received
     else
       Exit(0);
   end;
@@ -399,16 +540,17 @@ begin
   Result := inherited ReadDataFromSource(VBuffer);
   if Result = 0 then
   begin
-    CheckForDisconnect; //disconnected in the mean time?
-    GStack.CheckForSocketError(GStack.WSGetLastError); //check for socket error
+    CheckForDisconnect; // disconnected in the mean time?
+    GStack.CheckForSocketError(GStack.WSGetLastError); // check for socket error
     if ARaiseExceptionOnTimeout then
-      raise EIdNoDataToRead.Create(RSIdNoDataToRead); //nothing read? then connection is probably closed -> exit
+      raise EIdNoDataToRead.Create(RSIdNoDataToRead); // nothing read? then connection is probably closed -> exit
   end;
   SetLength(VBuffer, Result);
 end;
 
-procedure TIdIOHandlerWebSocket.WriteLn(const AOut:string; AEncoding: TIdTextEncoding);
+procedure TIdIOHandlerWebSocketSSL.WriteLn(const AOut:string; AEncoding: TIdTextEncoding);
 begin
+
   if UseSingleWriteThread and IsWebSocket and
      (TThread.Current.ThreadID <> TIdWebSocketWriteThread.Instance.ThreadID) then
   begin
@@ -425,7 +567,7 @@ begin
     Lock;
     try
       FPayloadInfo.Initialize(True,0);
-      inherited WriteLn(AOut, UTF8Encoding);  //must be UTF8!
+      inherited WriteLn(AOut, UTF8Encoding);  // must be UTF8!
     finally
       FPayloadInfo.Clear;
       Unlock;
@@ -433,9 +575,10 @@ begin
   end;
 end;
 
-procedure TIdIOHandlerWebSocket.WriteLnRFC(const AOut: string;
+procedure TIdIOHandlerWebSocketSSL.WriteLnRFC(const AOut: string;
   AEncoding: TIdTextEncoding);
 begin
+
   if UseSingleWriteThread and IsWebSocket and
      (TThread.Current.ThreadID <> TIdWebSocketWriteThread.Instance.ThreadID) then
   begin
@@ -443,7 +586,7 @@ begin
     TIdWebSocketWriteThread.Instance.QueueEvent(
       procedure
       begin
-        AtomicDecrement(FPendingWriteCount);
+        TInterlocked.Decrement(FPendingWriteCount);
         WriteLnRFC(AOut, AEncoding);
       end)
   end
@@ -460,9 +603,10 @@ begin
   end;
 end;
 
-procedure TIdIOHandlerWebSocket.Write(const AOut: string;
+procedure TIdIOHandlerWebSocketSSL.Write(const AOut: string;
   AEncoding: TIdTextEncoding);
 begin
+
   if UseSingleWriteThread and IsWebSocket and
      (TThread.Current.ThreadID <> TIdWebSocketWriteThread.Instance.ThreadID) then
   begin
@@ -479,7 +623,7 @@ begin
     Lock;
     try
       FPayloadInfo.Initialize(True,0);
-      inherited Write(AOut, UTF8Encoding);  //must be UTF8!
+      inherited Write(AOut, UTF8Encoding);  // must be UTF8!
     finally
       FPayloadInfo.Clear;
       Unlock;
@@ -487,9 +631,10 @@ begin
   end;
 end;
 
-procedure TIdIOHandlerWebSocket.Write(AValue: TStrings;
+procedure TIdIOHandlerWebSocketSSL.Write(AValue: TStrings;
   AWriteLinesCount: Boolean; AEncoding: TIdTextEncoding);
 begin
+
   if UseSingleWriteThread and IsWebSocket and
      (TThread.Current.ThreadID <> TIdWebSocketWriteThread.Instance.ThreadID) then
   begin
@@ -514,9 +659,10 @@ begin
   end;
 end;
 
-procedure TIdIOHandlerWebSocket.Write(AStream: TStream;
+procedure TIdIOHandlerWebSocketSSL.Write(AStream: TStream;
   aType: TWSDataType);
 begin
+
   if UseSingleWriteThread and IsWebSocket and
      (TThread.Current.ThreadID <> TIdWebSocketWriteThread.Instance.ThreadID) then
   begin
@@ -541,8 +687,9 @@ begin
   end;
 end;
 
-procedure TIdIOHandlerWebSocket.WriteBin(const ABytes: TArray<Byte>);
+procedure TIdIOHandlerWebSocketSSL.WriteBin(const ABytes: TArray<Byte>);
 begin
+
   if UseSingleWriteThread and IsWebSocket and
      (TThread.Current.ThreadID <> TIdWebSocketWriteThread.Instance.ThreadID) then
   begin
@@ -567,10 +714,9 @@ begin
   end;
 end;
 
-procedure TIdIOHandlerWebSocket.WriteBufferFlush(AByteCount: Integer);
+procedure TIdIOHandlerWebSocketSSL.WriteBufferFlush(AByteCount: Integer);
 begin
-  if (FWriteBuffer = nil) or (FWriteBuffer.Size <= 0) then
-    Exit;
+  if (FWriteBuffer = nil) or (FWriteBuffer.Size <= 0) then Exit;
 
   if UseSingleWriteThread and IsWebSocket and
      (TThread.Current.ThreadID <> TIdWebSocketWriteThread.Instance.ThreadID) then
@@ -587,17 +733,15 @@ begin
     inherited WriteBufferFlush(AByteCount);
 end;
 
-function TIdIOHandlerWebSocket.WriteDataToTarget(const ABuffer: TIdBytes;
-  const AOffset, ALength: Integer): Integer;
+function TIdIOHandlerWebSocketSSL.WriteDataToTarget(const ABuffer: TIdBytes; const AOffset, ALength: Integer): Integer;
 var data: TIdBytes; DataCode:TWSDataCode; fin:boolean;
 begin
-  if UseSingleWriteThread and IsWebSocket and
-    (TThread.Current.ThreadID <> TIdWebSocketWriteThread.Instance.ThreadID) then
+  if UseSingleWriteThread and IsWebSocket and (TThread.Current.ThreadID <> TIdWebSocketWriteThread.Instance.ThreadID) then
     Assert(False, 'Write done in different thread than TIdWebSocketWriteThread!');
 
   Lock;
   try
-//    Result := -1;  // commented out due to H2077 Value assigned never used...
+//    Result := -1; // commented out due to H2077 Value assigned never used...
     if not IsWebSocket then
     begin
       {$IFDEF DEBUG_WS}
@@ -606,7 +750,8 @@ begin
           [TThread.Current.ThreadID, Self.Binding.PeerPort, BytesToStringRaw(ABuffer)])));
       {$ENDIF}
       Result := inherited WriteDataToTarget(ABuffer, AOffset, ALength)
-    end else
+    end
+    else
     begin
       data := ToBytes(ABuffer, ALength, AOffset);
       {$IFDEF DEBUG_WS}
@@ -618,8 +763,7 @@ begin
       try
         DataCode := FPayloadInfo.DataCode;
         fin := FPayloadInfo.DecLength(ALength);
-        Result := WriteData(data, DataCode, fin,webBit1 in ClientExtensionBits,
-          webBit2 in ClientExtensionBits, webBit3 in ClientExtensionBits);
+        Result := WriteData(data, DataCode, fin,webBit1 in ClientExtensionBits, webBit2 in ClientExtensionBits, webBit3 in ClientExtensionBits);
       except
         FClosedGracefully := True;
         raise;
@@ -630,21 +774,25 @@ begin
   end;
 end;
 
-function TIdIOHandlerWebSocket.Readable(AMSec: Integer): Boolean;
+function TIdIOHandlerWebSocketSSL.Readable(AMSec: Integer): Boolean;
 begin
   if FWSInputBuffer.Size > 0 then
     Exit(True);
 
   if not FSelectLock.TryEnter then
-    Exit(False);
+    begin
+//      WSDebugger.OutputDebugString('FSelectLock Failed', TThread.Current.ThreadID.ToString);
+      Exit(False);
+    end;
   try
     Result := inherited Readable(AMSec);
   finally
+//    WSDebugger.OutputDebugString('FSelectLock Leave', TThread.Current.ThreadID.ToString);
     FSelectLock.Leave;
   end;
 end;
 
-procedure TIdIOHandlerWebSocket.ReadBytes(var VBuffer: TIdBytes;
+procedure TIdIOHandlerWebSocketSSL.ReadBytes(var VBuffer: TIdBytes;
   AByteCount: Integer; AAppend: Boolean);
 begin
   inherited;
@@ -662,13 +810,13 @@ begin
   {$ENDIF}
 end;
 
-function TIdIOHandlerWebSocket.ReadDataFromSource(
+function TIdIOHandlerWebSocketSSL.ReadDataFromSource(
   var VBuffer: TIdBytes): Integer;
 var
   wscode: TWSDataCode;
 begin
-  //the first time something is read AFTER upgrading, we switch to WS
-  //(so partial writes can be done, till a read is done)
+  // the first time something is read AFTER upgrading, we switch to WS
+  // (so partial writes can be done, till a read is done)
   if BusyUpgrading then
   begin
     BusyUpgrading := False;
@@ -684,7 +832,8 @@ begin
       {$IFDEF DEBUG_WS}
       if DebugHook > 0 then
         OutputDebugString(PChar(Format('Received (non ws, TID:%d, P:%d): %s',
-          [TThread.Current.ThreadID, Self.Binding.PeerPort, BytesToStringRaw(VBuffer, Result)])));
+          [TThread.Current.ThreadID, Self.Binding.PeerPort,
+            BytesToStringRaw(VBuffer, Result)])));
       {$ENDIF}
     end
     else
@@ -699,24 +848,24 @@ begin
             [TThread.Current.ThreadID, Self.Binding.PeerPort, BytesToStringRaw(VBuffer)])));
         {$ENDIF}
 
-        //first write the data code (text or binary, ping, pong)
+        // first write the data code (text or binary, ping, pong)
         FInputBuffer.Write(Uint32(Ord(wscode)));
-        //we write message size here, vbuffer is written after this. This way we can use ReadStream to get 1 single message (in case multiple messages in FInputBuffer)
+        // we write message size here, vbuffer is written after this. This way we can use ReadStream to get 1 single message (in case multiple messages in FInputBuffer)
         if LargeStream then
           FInputBuffer.Write(Int64(Result))
         else
           FInputBuffer.Write(Uint32(Result))
       except
-        FClosedGracefully := True; //closed (but not gracefully?)
+        FClosedGracefully := True; // closed (but not gracefully?)
         raise;
       end;
     end;
   finally
-    Unlock;  //normal unlock (no double try finally)
+    Unlock;  // normal unlock (no double try finally)
   end;
 end;
 
-function TIdIOHandlerWebSocket.ReadMessage(var aBuffer: TIdBytes; out aDataCode: TWSDataCode): Integer;
+function TIdIOHandlerWebSocketSSL.ReadMessage(var aBuffer: TIdBytes; out aDataCode: TWSDataCode): Integer;
 var
   iReadCount: Integer;
   iaReadBuffer: TIdBytes;
@@ -736,14 +885,14 @@ begin
   FMessageStream.Clear;
 
   repeat
-    //read a single frame
+    // read a single frame
     iReadCount := ReadFrame(bFIN, bRSV1, bRSV2, bRSV3, lDataCode, iaReadBuffer);
     if (iReadCount > 0) or
        (lDataCode <> wdcNone) then
     begin
       Assert(Length(iaReadBuffer) = iReadCount);
 
-      //store client extension bits
+      // store client extension bits
       if Self.IsServerSide then
       begin
         ClientExtensionBits := [];
@@ -752,7 +901,7 @@ begin
         if bRSV3 then ClientExtensionBits := ClientExtensionBits + [webBit3];
       end;
 
-      //process frame
+      // process frame
       case lDataCode of
         wdcText, wdcBinary:
           begin
@@ -772,29 +921,42 @@ begin
         wdcClose:
           begin
             FCloseCode := C_FrameClose_Normal;
-            //"If there is a body, the first two bytes of the body MUST be a 2-byte
+            // "If there is a body, the first two bytes of the body MUST be a 2-byte
             // unsigned integer (in network byte order) representing a status code"
             if Length(iaReadBuffer) > 1 then
             begin
               FCloseCode := (iaReadBuffer[0] shl 8) +
                              iaReadBuffer[1];
               if Length(iaReadBuffer) > 2 then
-                FCloseReason := BytesToString(iaReadBuffer, 2, Length(iaReadBuffer), UTF8Encoding);
+                begin
+                  FCloseReason := BytesToString(iaReadBuffer, 2, Length(iaReadBuffer), UTF8Encoding);
+                  FPeerCloseReason := FCloseReason;
+                end;
             end;
-
-            FClosing := True;
-            Self.Close;
+            FCloseReceived := True;
+            if not Closing then
+              begin
+                FClosing := True;
+                TThread.CreateAnonymousThread(procedure
+                begin
+                  TThread.NameThreadForDebugging('NotifyClosing', TThread.Current.ThreadID);
+                  NotifyClosing;
+                end).Start;
+                Close;
+                NotifyClosed;
+                bFIN := True;
+              end;
           end;
-        //Note: control frames can be send between fragmented frames
+        // Note: control frames can be send between fragmented frames
         wdcPing:
         begin
           WriteData(iaReadBuffer, wdcPong);  //send pong + same data back
           lFirstDataCode := lDataCode;
-          //bFIN := False; //ignore ping when we wait for data?
+          // bFIN := False; // ignore ping when we wait for data?
         end;
         wdcPong:
         begin
-           //pong received, ignore;
+           // pong received, ignore;
           lFirstDataCode := lDataCode;
         end;
       end;
@@ -803,12 +965,12 @@ begin
       Break;
   until bFIN;
 
-  //done?
+  // done?
   if bFIN then
   begin
     if (lFirstDataCode in [wdcText, wdcBinary]) then
     begin
-      //result
+      // result
       FMessageStream.Position := 0;
       TIdStreamHelper.ReadBytes(FMessageStream, aBuffer);
       Result    := FMessageStream.Size;
@@ -816,11 +978,11 @@ begin
     end
     else if (lFirstDataCode in [wdcPing, wdcPong]) then
     begin
-      //result
+      // result
       FMessageStream.Position := 0;
       TIdStreamHelper.ReadBytes(FMessageStream, aBuffer);
       SetLength(aBuffer, FMessageStream.Size);
-      //dummy data: there *must* be some data read otherwise connection is closed by Indy!
+      // dummy data: there *must* be some data read otherwise connection is closed by Indy!
       if Length(aBuffer) <= 0 then
       begin
         SetLength(aBuffer, 1);
@@ -833,25 +995,25 @@ begin
   end;
 end;
 
-procedure TIdIOHandlerWebSocket.SetBusyUpgrading(const Value: Boolean);
+procedure TIdIOHandlerWebSocketSSL.SetBusyUpgrading(const Value: Boolean);
 begin
   FBusyUpgrading := Value;
 end;
 
-procedure TIdIOHandlerWebSocket.SetCloseReason(const AReason: string);
-begin
-  FCloseReason := AReason;
-end;
-
-procedure TIdIOHandlerWebSocket.SetClosedGracefully(const Value: Boolean);
+procedure TIdIOHandlerWebSocketSSL.SetClosedGracefully(const Value: Boolean);
 begin
   FClosedGracefully := Value;
 end;
 
-procedure TIdIOHandlerWebSocket.SetIsWebSocket(const Value: Boolean);
+procedure TIdIOHandlerWebSocketSSL.SetCloseReason(const AReason: string);
+begin
+  FCloseReason := AReason;
+end;
+
+procedure TIdIOHandlerWebSocketSSL.SetIsWebSocket(const Value: Boolean);
 var data: TIdBytes;
 begin
-  //copy websocket data which was send/received during http upgrade
+  // copy websocket data which was send/received during http upgrade
   if not FIsWebSocket and Value and
      (FInputBuffer.Size > 0) then
   begin
@@ -862,33 +1024,39 @@ begin
   FIsWebSocket := Value;
 end;
 
-procedure TIdIOHandlerWebSocket.SetLastActivityTime(const Value: TDateTime);
+procedure TIdIOHandlerWebSocketSSL.SetLastActivityTime(const Value: TDateTime);
 begin
   FLastActivityTime := Value;
 end;
 
-procedure TIdIOHandlerWebSocket.SetLastPingTime(const Value: TDateTime);
+procedure TIdIOHandlerWebSocketSSL.SetLastPingTime(const Value: TDateTime);
 begin
   FLastPingTime := Value;
 end;
 
-procedure TIdIOHandlerWebSocket.SetUseNagle(const Value: Boolean);
+procedure TIdIOHandlerWebSocketSSL.SetUseNagle(const Value: Boolean);
 begin
   FUseNagle := Value;
 end;
 
-procedure TIdIOHandlerWebSocket.Lock;
+procedure TIdIOHandlerWebSocketSSL.SetWebSocketClosing(
+  const AValue: TOnWebSocketClosing);
+begin
+  FOnWebSocketClosing := AValue;
+end;
+
+procedure TIdIOHandlerWebSocketSSL.Lock;
 begin
   FLock.Enter;
 end;
 
-procedure TIdIOHandlerWebSocket.NotifyClosed;
+procedure TIdIOHandlerWebSocketSSL.NotifyClosed;
 begin
   if Assigned(FOnNotifyClosed) then
     FOnNotifyClosed;
 end;
 
-procedure TIdIOHandlerWebSocket.NotifyClosing;
+procedure TIdIOHandlerWebSocketSSL.NotifyClosing;
 begin
 {$IF DEFINED(DEBUG_WS)}
   WSDebugger.OutputDebugString(RoleName, 'TIdIOHandlerWebSocketSSL.NotifyClosing');
@@ -899,30 +1067,32 @@ begin
     OnWebSocketClosing(FCloseReason);
 end;
 
-function TIdIOHandlerWebSocket.TryLock: Boolean;
+function TIdIOHandlerWebSocketSSL.TryLock: Boolean;
 begin
   Result := FLock.TryEnter;
+//  WSDebugger.OutputDebugString('TIdIOHandlerWebSocketSSL Lock', TThread.Current.ThreadID.ToString);
 end;
 
-procedure TIdIOHandlerWebSocket.Unlock;
+procedure TIdIOHandlerWebSocketSSL.Unlock;
 begin
+//  WSDebugger.OutputDebugString('TIdIOHandlerWebSocketSSL Leave', TThread.Current.ThreadID.ToString);
   FLock.Leave;
 end;
 
 {$IF CompilerVersion >= 26}   //XE5
-function TIdIOHandlerWebSocket.UTF8Encoding: IIdTextEncoding;
+function TIdIOHandlerWebSocketSSL.UTF8Encoding: IIdTextEncoding;
 begin
   Result := IndyTextEncoding_UTF8;
 end;
 {$ELSE}
-function TIdIOHandlerWebSocket.UTF8Encoding: TEncoding;
+function TIdIOHandlerWebSocketSSL.UTF8Encoding: TEncoding;
 begin
   Result := TIdTextEncoding.UTF8;
 end;
 {$ENDIF}
 
-function TIdIOHandlerWebSocket.ReadFrame(out aFIN, aRSV1, aRSV2, aRSV3: boolean;
-                                         out aDataCode: TWSDataCode; out aData: TIdBytes): Integer;
+function TIdIOHandlerWebSocketSSL.ReadFrame(out aFIN, aRSV1, aRSV2, aRSV3: Boolean;
+  out aDataCode: TWSDataCode; out aData: TIdBytes): Integer;
 var
   iInputPos: NativeInt;
 
@@ -930,7 +1100,7 @@ var
   var
     temp: TIdBytes;
   begin
-    //if HasData then Exit(True);
+    // if HasData then Exit(True);
     if (FWSInputBuffer.Size > iInputPos) then
       Exit(True);
 
@@ -951,15 +1121,15 @@ var
   begin
     while FWSInputBuffer.Size <= iInputPos do
     begin
-      //FWSInputBuffer.AsString;
+      // FWSInputBuffer.AsString;
       _WaitByte(True);
       if FWSInputBuffer.Size <= iInputPos then
         Sleep(1);
     end;
 
-    //Self.ReadByte copies all data everytime (because the first byte must be removed) so we use index (much more efficient)
+    // Self.ReadByte copies all data everytime (because the first byte must be removed) so we use index (much more efficient)
     Result := FWSInputBuffer.PeekByte(iInputPos);
-    //FWSInputBuffer.AsString
+    // FWSInputBuffer.AsString
     inc(iInputPos);
   end;
 
@@ -1003,7 +1173,7 @@ begin
     Exit;
   FLastActivityTime := Now;   //received some data
 
-  //wait + process data
+  // wait + process data
   iByte := _GetByte;
   (* 0                   1                   2                   3
      0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 (nr)
@@ -1014,12 +1184,12 @@ begin
     |N|V|V|V|       |S|             |   (if payload len==126/127)   |
     | |1|2|3|       |K|             |                               |
     +-+-+-+-+-------+-+-------------+ - - - - - - - - - - - - - - - + *)
-  //FIN, RSV1, RSV2, RSV3: 1 bit each
+  // FIN, RSV1, RSV2, RSV3: 1 bit each
   aFIN   := (iByte and (1 shl 7)) > 0;
   aRSV1  := (iByte and (1 shl 6)) > 0;
   aRSV2  := (iByte and (1 shl 5)) > 0;
   aRSV3  := (iByte and (1 shl 4)) > 0;
-  //Opcode: 4 bits
+  // Opcode: 4 bits
   iCode  := (iByte and $0F); //clear 4 MSB's
   case iCode of
     C_FrameCode_Continuation: aDataCode := wdcContinuation;
@@ -1032,63 +1202,68 @@ begin
     raise EIdException.CreateFmt('Unsupported data code: %d. Buffer = %s', [iCode, FWSInputBuffer.AsString]);
   end;
 
-  //Mask: 1 bit
+  // Mask: 1 bit
   iByte       := _GetByte;
   bHasMask    := (iByte and (1 shl 7)) > 0;
-  //Length (7 bits or 7+16 bits or 7+64 bits)
+  // Length (7 bits or 7+16 bits or 7+64 bits)
   iDataLength := (iByte and $7F);  //clear 1 MSB
-  //Extended payload length?
-  //If 126, the following 2 bytes interpreted as a 16-bit unsigned integer are the payload length
+  // Extended payload length?
+  // If 126, the following 2 bytes interpreted as a 16-bit unsigned integer are the payload length
   if (iDataLength = 126) then
-  begin
-    iByte       := _GetByte;
-    iDataLength := (iByte shl 8); //8 MSB
-    iByte       := _GetByte;
-    iDataLength := iDataLength + iByte;
-  end
-  //If 127, the following 8 bytes interpreted as a 64-bit unsigned integer (the most significant bit MUST be 0) are the payload length
-  else if (iDataLength = 127) then
-  begin
-    iDataLength := 0;
-    for i := 7 downto 0 do  //read 8 bytes in reverse order
     begin
       iByte       := _GetByte;
-      iDataLength := iDataLength +
-                     (Int64(iByte) shl (8 * i)); //shift bits to left to recreate 64bit integer
+      iDataLength := (iByte shl 8); //8 MSB
+      iByte       := _GetByte;
+      iDataLength := iDataLength + iByte;
+    end else
+  if (iDataLength = 127) then
+    begin
+    // If 127, the following 8 bytes interpreted as a 64-bit unsigned integer (the most significant bit MUST be 0) are the payload length
+      iDataLength := 0;
+      for i := 7 downto 0 do  //read 8 bytes in reverse order
+        begin
+          iByte       := _GetByte;
+          iDataLength := iDataLength +
+                         (Int64(iByte) shl (8 * i)); //shift bits to left to recreate 64bit integer
+        end;
+      Assert(iDataLength > 0);
     end;
-    Assert(iDataLength > 0);
-  end;
 
-  //"All frames sent from client to server must have this bit set to 1"
+  // "All frames sent from client to server must have this bit set to 1"
   if IsServerSide and not bHasMask then
-    raise EIdWebSocketHandleError.Create('No mask supplied: mask is required for clients when sending data to server. Buffer = ' + FWSInputBuffer.AsString)
-  else if not IsServerSide and bHasMask then
-    raise EIdWebSocketHandleError.Create('Mask supplied but mask is not allowed for servers when sending data to clients. Buffer = ' + FWSInputBuffer.AsString);
+    begin
+      {$IF DEFINED(MSWINDOWS)}DebugBreak;{$ENDIF}
+      raise EIdWebSocketHandleError.Create('No mask supplied: mask is required for clients when sending data to server. Buffer = ' + FWSInputBuffer.AsString);
+    end else
+  if not IsServerSide and bHasMask then
+    begin
+      {$IF DEFINED(MSWINDOWS)}DebugBreak;{$ENDIF}
+      raise EIdWebSocketHandleError.Create('Mask supplied but mask is not allowed for servers when sending data to clients. Buffer = ' + FWSInputBuffer.AsString);
+    end;
 
   //Masking-key: 0 or 4 bytes
   if bHasMask then
-  begin
-    rMask.MaskAsBytes[0] := _GetByte;
-    rMask.MaskAsBytes[1] := _GetByte;
-    rMask.MaskAsBytes[2] := _GetByte;
-    rMask.MaskAsBytes[3] := _GetByte;
-  end;
-  //Payload data:  (x+y) bytes
+    begin
+      rMask.MaskAsBytes[0] := _GetByte;
+      rMask.MaskAsBytes[1] := _GetByte;
+      rMask.MaskAsBytes[2] := _GetByte;
+      rMask.MaskAsBytes[3] := _GetByte;
+    end;
+  // Payload data:  (x+y) bytes
   FWSInputBuffer.Remove(iInputPos);  //remove first couple of processed bytes (header)
-  //simple read?
+  // simple read?
   if not bHasMask then
-    aData := _GetBytes(iDataLength)
-  else
-  //reverse mask
+    aData := _GetBytes(iDataLength) else
   begin
+  // reverse mask
     aData := _GetBytes(iDataLength);
     iPos   := 0;
     while iPos < iDataLength do
-    begin
-      aData[iPos] := aData[iPos] xor
-                      rMask.MaskAsBytes[iPos mod 4]; //apply mask
-      inc(iPos);
-    end;
+      begin
+        aData[iPos] := aData[iPos] xor
+                        rMask.MaskAsBytes[iPos mod 4]; //apply mask
+        inc(iPos);
+      end;
   end;
 
   Result := Length(aData);
@@ -1099,7 +1274,7 @@ begin
   {$ENDIF}
 end;
 
-function TIdIOHandlerWebSocket.WriteData(const aData: TIdBytes;
+function TIdIOHandlerWebSocketSSL.WriteData(const aData: TIdBytes;
   aType: TWSDataCode; aFIN, aRSV1, aRSV2, aRSV3: Boolean): integer;
 var
   iByte: Byte;
@@ -1114,7 +1289,7 @@ var
   strmData: TMemoryStream;
   bData: TIdBytes;
 begin
-//  Result := 0;// commented out due to H2077 Value assigned never used...
+//  Result := 0;  // commented out due to H2077 Value assigned never used...
   Assert(Binding <> nil);
 
   strmData := TMemoryStream.Create;
@@ -1130,12 +1305,12 @@ begin
       |N|V|V|V|       |S|             |   (if payload len==126/127)   |
       | |1|2|3|       |K|             |                               |
       +-+-+-+-+-------+-+-------------+ - - - - - - - - - - - - - - - + *)
-    //FIN, RSV1, RSV2, RSV3: 1 bit each
+    // FIN, RSV1, RSV2, RSV3: 1 bit each
     if aFIN  then iByte :=         (1 shl 7) else iByte := 0;
     if aRSV1 then iByte := iByte + (1 shl 6);
     if aRSV2 then iByte := iByte + (1 shl 5);
     if aRSV3 then iByte := iByte + (1 shl 4);
-    //Opcode: 4 bits
+    // Opcode: 4 bits
     case aType of
       wdcContinuation : iByte := iByte + C_FrameCode_Continuation;
       wdcText         : iByte := iByte + C_FrameCode_Text;
@@ -1149,85 +1324,83 @@ begin
     strmData.Write(iByte, SizeOf(iByte));
 
     iByte := 0;
-    //Mask: 1 bit; Note: Clients must apply a mask
+    // Mask: 1 bit; Note: Clients must apply a mask
     if not IsServerSide then iByte := (1 shl 7);
 
-    //Length: 7 bits or 7+16 bits or 7+64 bits
-    if Length(aData) < 126 then            //7 bit, 128
-      iByte := iByte + Length(aData)
-    else if Length(aData) < 1 shl 16 then  //16 bit, 65536
-      iByte := iByte + 126
-    else
+    // Length: 7 bits or 7+16 bits or 7+64 bits
+    if Length(aData) < 126 then       // 7 bit, 128
+      iByte := iByte + Length(aData) else
+    if Length(aData) < 1 shl 16 then  // 16 bit, 65536
+      iByte := iByte + 126 else
       iByte := iByte + 127;
     strmData.Write(iByte, SizeOf(iByte));
 
-    //Extended payload length?
+    // Extended payload length?
     if Length(aData) >= 126 then
-    begin
-      //If 126, the following 2 bytes interpreted as a 16-bit unsigned integer are the payload length
-      if Length(aData) < 1 shl 16 then  //16 bit, 65536
       begin
-        rLength.Lo := Length(aData);
-        iByte := rLength.Bytes[1];
-        strmData.Write(iByte, SizeOf(iByte));
-        iByte := rLength.Bytes[0];
-        strmData.Write(iByte, SizeOf(iByte));
-      end
-      else
-      //If 127, the following 8 bytes interpreted as a 64-bit unsigned integer (the most significant bit MUST be 0) are the payload length
-      begin
-        rLength := Int64Rec(Int64(Length(aData)));
-        for i := 7 downto 0 do
-        begin
-          iByte := rLength.Bytes[i];
-          strmData.Write(iByte, SizeOf(iByte));
-        end;
-      end
-    end;
+        // If 126, the following 2 bytes interpreted as a 16-bit unsigned integer are the payload length
+        if Length(aData) < 1 shl 16 then  //16 bit, 65536
+          begin
+            rLength.Lo := Length(aData);
+            iByte := rLength.Bytes[1];
+            strmData.Write(iByte, SizeOf(iByte));
+            iByte := rLength.Bytes[0];
+            strmData.Write(iByte, SizeOf(iByte));
+          end else
+          begin
+          // If 127, the following 8 bytes interpreted as a 64-bit unsigned integer (the most significant bit MUST be 0) are the payload length
+            rLength := Int64Rec(Int64(Length(aData)));
+            for i := 7 downto 0 do
+            begin
+              iByte := rLength.Bytes[i];
+              strmData.Write(iByte, SizeOf(iByte));
+            end;
+          end
+      end;
 
-    //Masking-key: 0 or 4 bytes; Note: Clients must apply a mask
+    // Masking-key: 0 or 4 bytes; Note: Clients must apply a mask
     if not IsServerSide then
-    begin
-      rMask.MaskAsInt := Random(MaxInt);
-      strmData.Write(rMask.MaskAsBytes[0], SizeOf(Byte));
-      strmData.Write(rMask.MaskAsBytes[1], SizeOf(Byte));
-      strmData.Write(rMask.MaskAsBytes[2], SizeOf(Byte));
-      strmData.Write(rMask.MaskAsBytes[3], SizeOf(Byte));
-    end;
+      begin
+        rMask.MaskAsInt := Random(MaxInt);
+        strmData.Write(rMask.MaskAsBytes[0], SizeOf(Byte));
+        strmData.Write(rMask.MaskAsBytes[1], SizeOf(Byte));
+        strmData.Write(rMask.MaskAsBytes[2], SizeOf(Byte));
+        strmData.Write(rMask.MaskAsBytes[3], SizeOf(Byte));
+      end;
 
-    //write header
+    // write header
     strmData.Position := 0;
     TIdStreamHelper.ReadBytes(strmData, bData);
 
-    //Mask? Note: Only clients must apply a mask
+    // Mask? Note: Only clients must apply a mask
     if not IsServerSide then
-    begin
-      iPos := 0;
-      iDataLength := Length(aData);
-      //in place masking
-      while iPos < iDataLength do
       begin
-        iByte := aData[iPos] xor rMask.MaskAsBytes[iPos mod 4]; //apply mask
-        aData[iPos] := iByte;
-        inc(iPos);
+        iPos := 0;
+        iDataLength := Length(aData);
+        // in place masking
+        while iPos < iDataLength do
+          begin
+            iByte := aData[iPos] xor rMask.MaskAsBytes[iPos mod 4]; //apply mask
+            aData[iPos] := iByte;
+            inc(iPos);
+          end;
       end;
-    end;
 
     AppendBytes(bData, aData);   //important: send all at once!
     ioffset := 0;
     repeat
-      //Result := Binding.Send(bData, ioffset);
+      // Result := Binding.Send(bData, ioffset);
       //
-      Result := inherited WriteDataToTarget(bdata, iOffset, (Length(bData) - ioffset));  //ssl compatible?
+      Result := inherited WriteDataToTarget(bdata, iOffset, (Length(bData) - ioffset));  // SSL compatible?
       if Result<0 then
         begin
          // IO error ; probably connexion closed by peer on protocol error ?
          {$IFDEF DEBUG_WS}
          if DebugHook > 0 then
-           OutputDebugString(PChar(Format('WriteError ThrID:%d, L:%d, R:%d',[TThread.CurrentThread.ThreadID,Length(bData)-ioffset,Result])));
-
+           OutputDebugString(PChar(Format('WriteError ThrID:%d, L:%d, R:%d',
+             [TThread.Current.ThreadID,Length(bData)-ioffset,Result])));
          {$ENDIF}
-         break;
+         Break;
        end;
       Inc(ioffset, Result);
     until ioffset >= Length(bData);
@@ -1241,13 +1414,27 @@ begin
   end;
 end;
 
-{ TIdIOHandlerWebSocketServer }
-
-procedure TIdIOHandlerWebSocketServer.InitComponent;
+// TIdIOHandlerWebSocketSSL
+procedure TIdIOHandlerWebSocketSSL.InitComponent;
 begin
   inherited;
-  IsServerSide := True;
-  UseNagle := False;
+  TIdStack.IncUsage;
+
+  FMessageStream := TMemoryStream.Create;
+  FWSInputBuffer := TIdBuffer.Create;
+  FLock := TCriticalSection.Create;
+  FSelectLock := TCriticalSection.Create;
+//  ReadTimeout := 5000;
+//  CloseTimeout := 30000;
+//  ConnectTimeout := 30000;
 end;
 
+initialization
+{$IF NOT DEFINED(MSWINDOWS)}
+  IdOpenSSLSetLibPath(TPath.GetDocumentsPath)
+{$ENDIF}
+finalization
+{$IF DEFINED(DEBUG_WS)}
+  WSDebugger.OutputDebugString('Finalized IdIOHandlerWebSocketSSL');
+{$ENDIF}
 end.

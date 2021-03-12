@@ -5,7 +5,7 @@ unit IdIOHandlerWebSocket;
 //The WebSocket Protocol, RFC 6455
 //http://datatracker.ietf.org/doc/rfc6455/?include_text=1
 interface
-{$I wsdefines.pas}
+{$I wsdefines.inc}
 uses
   System.Classes, System.SyncObjs, System.Generics.Collections,
   IdIOHandlerStack, IdGlobal, IdException, IdBuffer, IdSSLOpenSSL,

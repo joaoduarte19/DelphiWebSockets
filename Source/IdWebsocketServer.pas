@@ -2,7 +2,7 @@ unit IdWebSocketServer;
 
 interface
 
-{$I wsdefines.pas}
+{$I wsdefines.inc}
 
 uses
   idStackConsts, System.Classes, IdStreamVCL, IdGlobal,

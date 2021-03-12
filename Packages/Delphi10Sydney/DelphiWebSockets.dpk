@@ -31,18 +31,28 @@ package DelphiWebSockets;
 {$IMPLICITBUILD ON}
 
 requires
-  rtl;
+  rtl,
+  IndySystem,
+  IndyProtocols,
+  IndyCore;
 
 contains
   IdHTTPWebsocketClient in '..\..\Source\IdHTTPWebsocketClient.pas',
+  IdIIOHandlerWebsocket in '..\..\Source\IdIIOHandlerWebsocket.pas',
   IdIOHandlerWebsocket in '..\..\Source\IdIOHandlerWebsocket.pas',
+  IdIOHandlerWebSocketSSL in '..\..\Source\IdIOHandlerWebSocketSSL.pas',
   IdServerBaseHandling in '..\..\Source\IdServerBaseHandling.pas',
   IdServerIOHandlerWebsocket in '..\..\Source\IdServerIOHandlerWebsocket.pas',
+  IdServerIOHandlerWebsocketSSL in '..\..\Source\IdServerIOHandlerWebsocketSSL.pas',
   IdServerSocketIOHandling in '..\..\Source\IdServerSocketIOHandling.pas',
   IdServerWebsocketContext in '..\..\Source\IdServerWebsocketContext.pas',
   IdServerWebsocketHandling in '..\..\Source\IdServerWebsocketHandling.pas',
   IdSocketIOHandling in '..\..\Source\IdSocketIOHandling.pas',
+  IdWebSocketConsts in '..\..\Source\IdWebSocketConsts.pas',
   IdWebsocketServer in '..\..\Source\IdWebsocketServer.pas',
-  wsdefines in '..\..\Source\wsdefines.pas';
+  IdWebsocketServerSSL in '..\..\Source\IdWebsocketServerSSL.pas',
+  IdWebSocketTypes in '..\..\Source\IdWebSocketTypes.pas',
+  WSDebugger in '..\..\Source\WSDebugger.pas',
+  WSMultiReadThread in '..\..\Source\WSMultiReadThread.pas';
 
 end.

@@ -4,23 +4,32 @@ interface
 
 {$I wsdefines.inc}
 
+
 uses
-  idStackConsts, System.Classes, IdStreamVCL, IdGlobal,
-  IdHTTPServer, IdContext,
+  idStackConsts,
+  System.Classes,
+  IdStreamVCL,
+  IdGlobal,
+  IdHTTPServer,
+  IdContext,
   IdCustomHTTPServer,
-  {$IFDEF WEBSOCKETBRIDGE}  IdHTTPWebBrokerBridge,{$ENDIF}
+  {$IFDEF WEBSOCKETBRIDGE} IdHTTPWebBrokerBridge, {$ENDIF}
   IdIOHandlerWebSocket,
-  IdServerIOHandlerWebSocket, IdServerWebSocketContext,
-  IdServerWebSocketHandling, IdServerSocketIOHandling, IdWebSocketTypes,
+  IdServerIOHandlerWebSocket,
+  IdServerWebSocketContext,
+  IdServerWebSocketHandling,
+  IdServerSocketIOHandling,
+  IdWebSocketTypes,
   IdIIOHandlerWebSocket;
 
 type
   TWebSocketMessageText = procedure(const AContext: TIdServerWSContext;
-    const aText: string; const AResponse: TStream)  of object;
-  TWebSocketMessageBin  = procedure(const AContext: TIdServerWSContext;
+    const aText: string; const AResponse: TStream) of object;
+  TWebSocketMessageBin = procedure(const AContext: TIdServerWSContext;
     const aData: TStream; const AResponse: TStream) of object;
 
   {$IFDEF WEBSOCKETBRIDGE}
+
   TMyIdHttpWebBrokerBridge = class(TidHttpWebBrokerBridge)
   published
     property OnCreatePostStream;
@@ -28,12 +37,12 @@ type
     property OnCommandGet;
   end;
   {$ENDIF}
-
   {$IFDEF WEBSOCKETBRIDGE}
+
   TIdWebSocketServer = class(TMyIdHttpWebBrokerBridge)
   {$ELSE}
   TIdWebSocketServer = class(TIdHTTPServer)
-  {$ENDIF}
+    {$ENDIF}
   private
     FSocketIO: TIdServerSocketIOHandling_Ext;
     FOnMessageText: TWebSocketMessageText;
@@ -51,12 +60,12 @@ type
     procedure ContextDisconnected(AContext: TIdContext); override;
 
     procedure InternalDisconnect(const AHandler: IIOHandlerWebsocket;
-      ANotifyPeer: Boolean; const AReason: string='');
+      ANotifyPeer: Boolean; const AReason: string = '');
 
     procedure WebSocketUpgradeRequest(const AContext: TIdServerWSContext;
       const ARequestInfo: TIdHTTPRequestInfo; var Accept: Boolean); virtual;
     procedure WebSocketChannelRequest(const AContext: TIdServerWSContext;
-      var aType:TWSDataType; const aStrmRequest, aStrmResponse: TMemoryStream); virtual;
+      var aType: TWSDataType; const aStrmRequest, aStrmResponse: TMemoryStream); virtual;
 
     procedure SetOnWebSocketClosing(const AValue: TOnWebSocketClosing);
 
@@ -64,23 +73,23 @@ type
     procedure DoTerminateContext(AContext: TIdContext); override;
 
   public
-    procedure  AfterConstruction; override;
+    procedure AfterConstruction; override;
     destructor Destroy; override;
 
-    procedure DisconnectAll(const AReason: string='');
+    procedure DisconnectAll(const AReason: string = '');
     procedure DisconnectWithReason(const AHandler: IIOHandlerWebSocket;
       const AReason: string; ANotifyPeer: Boolean = True);
     procedure SendMessageToAll(const aBinStream: TStream); overload;
     /// <summary> Sends the indicated message to all users except the AExceptTarget </summary>
     procedure SendMessageToAll(const AText: string;
-      const AExceptTarget: TIdServerWSContext=nil); overload;
+      const AExceptTarget: TIdServerWSContext = nil); overload;
 
     property OnConnected: TWebSocketConnected read FConnectionEvents.ConnectedEvent
       write FConnectionEvents.ConnectedEvent;
     property OnDisconnected: TWebSocketDisconnected read FConnectionEvents.DisconnectedEvent
       write FConnectionEvents.DisconnectedEvent;
     property OnMessageText: TWebSocketMessageText read FOnMessageText write FOnMessageText;
-    property OnMessageBin : TWebSocketMessageBin  read FOnMessageBin  write FOnMessageBin;
+    property OnMessageBin: TWebSocketMessageBin read FOnMessageBin write FOnMessageBin;
     property OnWebSocketClosing: TOnWebSocketClosing read FOnWebSocketClosing write SetOnWebSocketClosing;
 
     property SocketIO: TIdServerSocketIOHandling read GetSocketIO;
@@ -89,8 +98,11 @@ type
   end;
 
 implementation
+
 uses
-  System.SysUtils, WSDebugger, IdHTTPWebSocketClient;
+  System.SysUtils,
+  WSDebugger,
+  IdHTTPWebSocketClient;
 
 { TIdWebSocketServer }
 
@@ -104,7 +116,7 @@ begin
   if IOHandler = nil then
     IOHandler := TIdServerIOHandlerWebSocket.Create(Self);
 
-  FWriteTimeout := 2 * 1000;  //2s
+  FWriteTimeout := 2 * 1000; // 2s
 end;
 
 procedure TIdWebSocketServer.ContextCreated(AContext: TIdContext);
@@ -149,14 +161,14 @@ begin
       LHandler := LContext.IOHandler;
       try
         if LHandler.IsWebSocket and not LContext.IsSocketIO then
-          begin
-            DisconnectWithReason(LHandler, AReason);
-  //          LHandler.Close;
-          end;
+        begin
+          DisconnectWithReason(LHandler, AReason);
+  // LHandler.Close;
+        end;
       except
         {$IF DEFINED(DEBUG_WS)}
         on E: Exception do
-          WSDebugger.OutputDebugString('Disconnect All: '+E.Message);
+          WSDebugger.OutputDebugString('Disconnect All: ' + E.Message);
         {$ENDIF}
       end;
     end;
@@ -180,14 +192,15 @@ var
 begin
   LServerContext.OnWebSocketUpgrade := Self.WebSocketUpgradeRequest;
   LServerContext.OnCustomChannelExecute := Self.WebSocketChannelRequest;
-  LServerContext.SocketIO               := FSocketIO;
+  LServerContext.SocketIO := FSocketIO;
 
   Result := True;
   try // try to see if server becomes non-responsive by removing the try-except
     LHandler := LServerContext.IOHandler;
-    LHandler.OnNotifyClosed := procedure begin
-      LHandler.ClosedGracefully := True;
-    end;
+    LHandler.OnNotifyClosed := procedure
+      begin
+        LHandler.ClosedGracefully := True;
+      end;
     Result := TIdServerWebSocketHandling.ProcessServerCommandGet(
       AContext as TIdServerWSContext, FConnectionEvents,
       ARequestInfo, AResponseInfo);
@@ -197,12 +210,12 @@ begin
   except
   // chuacw fix, CloseConnection when return????
     on E: Exception do
-      begin
-        {$IF DEFINED(DEBUG_WS)}
-        WSDebugger.OutputDebugString('Exception in ProcessServerCommandGet: '+E.Message);
-        {$ENDIF}
-        SetIOHandler(nil);
-      end;
+    begin
+      {$IF DEFINED(DEBUG_WS)}
+      WSDebugger.OutputDebugString('Exception in ProcessServerCommandGet: ' + E.Message);
+      {$ENDIF}
+      SetIOHandler(nil);
+    end;
   end;
 
 end;
@@ -210,7 +223,7 @@ end;
 procedure TIdWebSocketServer.DoCommandGet(AContext: TIdContext;
   ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
 begin
-  if not WebSocketCommandGet(AContext,ARequestInfo,AResponseInfo) then
+  if not WebSocketCommandGet(AContext, ARequestInfo, AResponseInfo) then
     inherited DoCommandGet(AContext, ARequestInfo, AResponseInfo);
 end;
 
@@ -230,25 +243,26 @@ begin
 // See if we can get the reason from the server by using the read thread
 
   if LHandler <> nil then
-    begin
-      if AReason = '' then
-        LHandler.Close else
-        LHandler.CloseWithReason(AReason);
+  begin
+    if AReason = '' then
+      LHandler.Close
+    else
+      LHandler.CloseWithReason(AReason);
 
-      LHandler.Lock;
-      try
-        LHandler.IsWebSocket := False;
+    LHandler.Lock;
+    try
+      LHandler.IsWebSocket := False;
 
-        LHandler.Clear;
+      LHandler.Clear;
 
-      finally
-        LHandler.Unlock;
-      end;
+    finally
+      LHandler.Unlock;
     end;
+  end;
 end;
 
 procedure TIdWebSocketServer.SendMessageToAll(const AText: string;
-  const AExceptTarget: TIdServerWSContext=nil);
+  const AExceptTarget: TIdServerWSContext = nil);
 var
   LList: TList;
   LContext: TIdServerWSContext;
@@ -257,14 +271,14 @@ begin
   LList := Contexts.LockList;
   try
     for I := 0 to LList.Count - 1 do
-      begin
-        LContext := TIdServerWSContext(LList.Items[I]);
-        Assert(LContext is TIdServerWSContext);
-        if LContext = AExceptTarget then
-          Continue; // skip sending to this target
-        if LContext.IOHandler.IsWebSocket and not LContext.IsSocketIO then
-          LContext.IOHandler.Write(AText);
-      end;
+    begin
+      LContext := TIdServerWSContext(LList.Items[I]);
+      Assert(LContext is TIdServerWSContext);
+      if LContext = AExceptTarget then
+        Continue; // skip sending to this target
+      if LContext.IOHandler.IsWebSocket and not LContext.IsSocketIO then
+        LContext.IOHandler.Write(AText);
+    end;
   finally
     Self.Contexts.UnlockList;
   end;
@@ -328,7 +342,7 @@ begin
       OnMessageText(AContext, s, aStrmResponse)
   end
   else if Assigned(OnMessageBin) then
-      OnMessageBin(AContext, aStrmRequest, aStrmResponse)
+    OnMessageBin(AContext, aStrmRequest, aStrmResponse)
 end;
 
 procedure TIdWebSocketServer.SendMessageToAll(const aBinStream: TStream);

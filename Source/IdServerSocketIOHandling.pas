@@ -1,6 +1,9 @@
 unit IdServerSocketIOHandling;
+
 interface
+
 {$I wsdefines.inc}
+
 uses
   System.Classes,
   System.Generics.Collections,
@@ -20,7 +23,7 @@ type
   public
     function SendToAll(const AMessage: string; const ACallback: TSocketIOMsgJSON = nil; const AOnError: TSocketIOError = nil): Integer;
     procedure SendTo(const AContext: TIdServerContext; const AMessage: string; const ACallback: TSocketIOMsgJSON = nil;
-      const AOnError: TSocketIOError= nil);
+      const AOnError: TSocketIOError = nil);
     function EmitEventToAll(const AEventName: string; const AData: string; const ACallback: TSocketIOMsgJSON = nil;
       const AOnError: TSocketIOError = nil): Integer; overload;
     function EmitEventToAll(const AEventName: string; const AData: TJSONValue; const ACallback: TSocketIOMsgJSON = nil;
@@ -51,9 +54,9 @@ begin
   LJsonArrayStr := AData.ToJSON;
 
   if not Assigned(ACallback) then
-    WriteSocketIOEvent(AContext, ''{no room}, AEventName, LJsonArrayStr, nil, nil)
+    WriteSocketIOEvent(AContext, '' { no room } , AEventName, LJsonArrayStr, nil, nil)
   else
-    WriteSocketIOEventRef(AContext, ''{no room}, AEventName, LJsonArrayStr,
+    WriteSocketIOEventRef(AContext, '' { no room } , AEventName, LJsonArrayStr,
       procedure(const Data: string)
       begin
         ACallback(AContext, TJSONObject.ParseJSONValue(Data), nil);
@@ -62,7 +65,7 @@ begin
 end;
 
 procedure TIdServerSocketIOHandling.EmitEventTo(const AContext: TIdServerContext; const AEventName: string; const AData: TJSONValue;
-  const ACallback: TSocketIOMsgJSON; const AOnError: TSocketIOError);
+const ACallback: TSocketIOMsgJSON; const AOnError: TSocketIOError);
 var
   LContext: ISocketIOContext;
 begin
@@ -76,13 +79,13 @@ begin
 end;
 
 function TIdServerSocketIOHandling.EmitEventToAll(const AEventName: string; const AData: TJSONValue; const ACallback: TSocketIOMsgJSON;
-  const AOnError: TSocketIOError): Integer;
+const AOnError: TSocketIOError): Integer;
 begin
   Result := EmitEventToAll(AEventName, AData.ToJSON, ACallback, AOnError);
 end;
 
 function TIdServerSocketIOHandling.EmitEventToAll(const AEventName, AData: string; const ACallback: TSocketIOMsgJSON;
-  const AOnError: TSocketIOError): Integer;
+const AOnError: TSocketIOError): Integer;
 var
   LContext: ISocketIOContext;
   LJsonArrayStr: string;
@@ -99,16 +102,16 @@ begin
 
       try
         if not Assigned(ACallback) then
-          WriteSocketIOEvent(LContext, ''{no room}, AEventName, LJsonArrayStr, nil, nil)
+          WriteSocketIOEvent(LContext, '' { no room } , AEventName, LJsonArrayStr, nil, nil)
         else
-          WriteSocketIOEventRef(LContext, ''{no room}, AEventName, LJsonArrayStr,
+          WriteSocketIOEventRef(LContext, '' { no room } , AEventName, LJsonArrayStr,
             procedure(const Data: string)
             begin
               ACallback(LContext, TJSONObject.ParseJSONValue(Data), nil);
             end,
             AOnError);
       except
-        //try to send to others
+        // try to send to others
       end;
       Inc(Result);
     end;
@@ -119,15 +122,15 @@ begin
 
       try
         if not Assigned(ACallback) then
-          WriteSocketIOEvent(LContext, ''{no room}, AEventName, LJsonArrayStr, nil, nil)
+          WriteSocketIOEvent(LContext, '' { no room } , AEventName, LJsonArrayStr, nil, nil)
         else
-          WriteSocketIOEventRef(LContext, ''{no room}, AEventName, LJsonArrayStr,
+          WriteSocketIOEventRef(LContext, '' { no room } , AEventName, LJsonArrayStr,
             procedure(const Data: string)
             begin
               ACallback(LContext, TJSONObject.ParseJSONValue(Data), nil);
             end, AOnError);
       except
-        //try to send to others
+        // try to send to others
       end;
       Inc(Result);
     end;
@@ -137,7 +140,7 @@ begin
 end;
 
 procedure TIdServerSocketIOHandling.SendTo(const AContext: TIdServerContext; const AMessage: string; const ACallback: TSocketIOMsgJSON;
-  const AOnError: TSocketIOError);
+const AOnError: TSocketIOError);
 var
   LContext: ISocketIOContext;
 begin
@@ -148,9 +151,9 @@ begin
       raise EIdSocketIoUnhandledMessage.Create('socket.io connection closed!');
 
     if not Assigned(ACallback) then
-      WriteSocketIOMsg(LContext, ''{no room}, AMessage, nil)
+      WriteSocketIOMsg(LContext, '' { no room } , AMessage, nil)
     else
-      WriteSocketIOMsg(LContext, ''{no room}, AMessage,
+      WriteSocketIOMsg(LContext, '' { no room } , AMessage,
         procedure(const Data: string)
         begin
           ACallback(LContext, TJSONObject.ParseJSONValue(Data), nil);
@@ -173,9 +176,9 @@ begin
         Continue;
 
       if not Assigned(ACallback) then
-        WriteSocketIOMsg(LContext, ''{no room}, AMessage, nil)
+        WriteSocketIOMsg(LContext, '' { no room } , AMessage, nil)
       else
-        WriteSocketIOMsg(LContext, ''{no room}, AMessage,
+        WriteSocketIOMsg(LContext, '' { no room } , AMessage,
           procedure(const Data: string)
           begin
             ACallback(LContext, TJSONObject.ParseJSONValue(Data), nil);
@@ -188,9 +191,9 @@ begin
         Continue;
 
       if not Assigned(ACallback) then
-        WriteSocketIOMsg(LContext, ''{no room}, AMessage, nil)
+        WriteSocketIOMsg(LContext, '' { no room } , AMessage, nil)
       else
-        WriteSocketIOMsg(LContext, ''{no room}, AMessage,
+        WriteSocketIOMsg(LContext, '' { no room } , AMessage,
           procedure(const Data: string)
           begin
             ACallback(LContext, TJSONObject.ParseJSONValue(Data), nil);

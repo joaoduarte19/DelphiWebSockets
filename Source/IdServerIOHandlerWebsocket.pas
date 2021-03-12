@@ -1,9 +1,19 @@
 unit IdServerIOHandlerWebSocket;
+
 interface
+
 {$I wsdefines.inc}
+
 uses
-  System.Classes, IdServerIOHandlerStack, IdIOHandlerStack, IdGlobal,
-  IdIOHandler, IdYarn, IdThread, IdSocketHandle, IdIOHandlerWebSocket,
+  System.Classes,
+  IdServerIOHandlerStack,
+  IdIOHandlerStack,
+  IdGlobal,
+  IdIOHandler,
+  IdYarn,
+  IdThread,
+  IdSocketHandle,
+  IdIOHandlerWebSocket,
   IdWebSocketTypes;
 
 type
@@ -15,13 +25,12 @@ type
   public
     function Accept(ASocket: TIdSocketHandle; AListenerThread: TIdThread;
       AYarn: TIdYarn): TIdIOHandler; override;
-    function MakeClientIOHandler(ATheThread:TIdYarn): TIdIOHandler; override;
+    function MakeClientIOHandler(ATheThread: TIdYarn): TIdIOHandler; override;
   end;
 
 implementation
 
-function TIdServerIOHandlerWebSocket.Accept(ASocket: TIdSocketHandle;
-  AListenerThread: TIdThread; AYarn: TIdYarn): TIdIOHandler;
+function TIdServerIOHandlerWebSocket.Accept(ASocket: TIdSocketHandle; AListenerThread: TIdThread; AYarn: TIdYarn): TIdIOHandler;
 begin
   Result := inherited Accept(ASocket, AListenerThread, AYarn);
   if Result <> nil then

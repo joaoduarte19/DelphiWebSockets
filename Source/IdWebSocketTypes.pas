@@ -1,14 +1,18 @@
 unit IdWebSocketTypes;
 
 interface
+
 uses
-  System.Classes, System.SyncObjs, System.Generics.Collections, IdException;
+  System.Classes,
+  System.SyncObjs,
+  System.Generics.Collections,
+  IdException;
 
 type
-  TWSDataType      = (wdtText, wdtBinary);
-  TWSDataCode      = (wdcNone, wdcContinuation, wdcText, wdcBinary, wdcClose,
+  TWSDataType = (wdtText, wdtBinary);
+  TWSDataCode = (wdcNone, wdcContinuation, wdcText, wdcBinary, wdcClose,
     wdcPing, wdcPong);
-  TWSExtensionBit  = (webBit1, webBit2, webBit3);
+  TWSExtensionBit = (webBit1, webBit2, webBit3);
   TWSExtensionBits = set of TWSExtensionBit;
   TIdWebSocketRequestType = (wsrtGet, wsrtPost);
 
@@ -20,20 +24,21 @@ type
     procedure Clear;
   end;
 
-  TOnWebSocketClosing = procedure (const AReason: string) of object;
+  TOnWebSocketClosing = procedure(const AReason: string) of object;
+
   ISetWebSocketClosing = interface
     ['{7EB09E63-DF10-472E-8B1C-DAB7EAE2164E}']
     procedure SetWebSocketClosing(const AValue: TOnWebSocketClosing);
   end;
 
-   TWSCriticalSection = System.SyncObjs.TCriticalSection;
-//  TWSCriticalSection = class
-//  public
-//    constructor Create;
-//    procedure Enter;
-//    procedure Leave;
-//    function TryEnter: Boolean;
-//  end;
+  TWSCriticalSection = System.SyncObjs.TCriticalSection;
+// TWSCriticalSection = class
+// public
+// constructor Create;
+// procedure Enter;
+// procedure Leave;
+// function TryEnter: Boolean;
+// end;
 
   TThreadID = NativeUInt;
 
@@ -46,7 +51,7 @@ type
     FEvent: TEvent;
     FEvents, FProcessing: TList<TThreadProcedure>;
   public
-    procedure  AfterConstruction; override;
+    procedure AfterConstruction; override;
     destructor Destroy; override;
 
     procedure Lock;
@@ -68,7 +73,7 @@ type
   protected
     class var FInstance: TIdWebSocketWriteThread;
   public
-    class function  Instance: TIdWebSocketWriteThread;
+    class function Instance: TIdWebSocketWriteThread;
     class procedure RemoveInstance;
     procedure Terminate;
   end;
@@ -78,19 +83,20 @@ type
   protected
     class var FInstance: TIdWebSocketDispatchThread;
   public
-    class function  Instance: TIdWebSocketDispatchThread;
+    class function Instance: TIdWebSocketDispatchThread;
     class procedure RemoveInstance(aForced: Boolean = False);
   end;
-
 
   EIdWebSocketException = class(EIdException);
 
 implementation
+
 uses
-{$IF DEFINED(MSWINOWS)}
+  {$IF DEFINED(MSWINOWS)}
   Winapi.Windows,
-{$ENDIF}
-  System.SysUtils, WSDebugger;
+  {$ENDIF}
+  System.SysUtils,
+  WSDebugger;
 
 var
   GUnitFinalized: Boolean = False;
@@ -101,7 +107,8 @@ procedure TIOWSPayloadInfo.Initialize(ATextMode: Boolean; APayloadLength: Cardin
 begin
   PayloadLength := APayloadLength;
   if ATextMode then
-    DataCode := wdcText else
+    DataCode := wdcText
+  else
     DataCode := wdcBinary;
 end;
 
@@ -114,10 +121,11 @@ end;
 function TIOWSPayloadInfo.DecLength(AValue: Cardinal): Boolean;
 begin
   if PayloadLength >= AValue then
-   begin
-     PayloadLength := PayloadLength - AValue;
-   end
-   else PayloadLength := 0;
+  begin
+    PayloadLength := PayloadLength - AValue;
+  end
+  else
+    PayloadLength := 0;
   DataCode := wdcContinuation;
   Result := PayloadLength = 0;
 end;
@@ -127,10 +135,10 @@ end;
 procedure TIdWebSocketQueueThread.AfterConstruction;
 begin
   inherited;
-  FLock       := TWSCriticalSection.Create;
-  FEvents     := TList<TThreadProcedure>.Create;
+  FLock := TWSCriticalSection.Create;
+  FEvents := TList<TThreadProcedure>.Create;
   FProcessing := TList<TThreadProcedure>.Create;
-  FEvent      := TEvent.Create;
+  FEvent := TEvent.Create;
 end;
 
 destructor TIdWebSocketQueueThread.Destroy;
@@ -163,7 +171,7 @@ begin
       if FProcessing.Count > 0 then
         ProcessQueue;
     except
-      //continue
+      // continue
     end;
   end;
 end;
@@ -232,8 +240,8 @@ end;
 
 procedure TIdWebSocketQueueThread.Unlock;
 begin
-//  System.TMonitor.Exit(FEvents);
-//  WSDebugger.OutputDebugString('FLock Leave', TThread.Current.ThreadID.ToString);
+// System.TMonitor.Exit(FEvents);
+// WSDebugger.OutputDebugString('FLock Leave', TThread.Current.ThreadID.ToString);
   FLock.Leave;
 end;
 
@@ -301,9 +309,9 @@ end;
 class procedure TIdWebSocketDispatchThread.RemoveInstance;
 var
   o: TIdWebSocketDispatchThread;
-{$IF DEFINED(CHECKSPEED)}
+  {$IF DEFINED(CHECKSPEED)}
   LStopwatch: TStopwatch;
-{$ENDIF}
+  {$ENDIF}
 begin
   if FInstance <> nil then
   begin
@@ -313,15 +321,15 @@ begin
 
     if aForced then
     begin
-{$IF DEFINED(CHECKSPEED)}
+      {$IF DEFINED(CHECKSPEED)}
       LStopwatch := TStopwatch.StartNew;
-{$ENDIF}
+      {$ENDIF}
       o.WaitFor;
       o.Terminate;
-{$IF DEFINED(CHECKSPEED)}
+      {$IF DEFINED(CHECKSPEED)}
       LStopwatch.Stop;
       WSDebugger.OutputDebugString(10, LStopwatch.ElapsedMilliseconds);
-{$ENDIF}
+      {$ENDIF}
     end;
     o.WaitFor;
     FreeAndNil(o);
@@ -329,4 +337,3 @@ begin
 end;
 
 end.
-

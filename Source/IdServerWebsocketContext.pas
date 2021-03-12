@@ -1,10 +1,20 @@
 unit IdServerWebSocketContext;
+
 interface
+
 {$I wsdefines.inc}
+
 uses
-  System.Classes, System.StrUtils, IdContext, IdCustomTCPServer,
-  IdCustomHTTPServer, IdIOHandlerWebSocket, IdServerBaseHandling,
-  IdServerSocketIOHandling, IdWebSocketTypes, IdIIOHandlerWebSocket;
+  System.Classes,
+  System.StrUtils,
+  IdContext,
+  IdCustomTCPServer,
+  IdCustomHTTPServer,
+  IdIOHandlerWebSocket,
+  IdServerBaseHandling,
+  IdServerSocketIOHandling,
+  IdWebSocketTypes,
+  IdIIOHandlerWebSocket;
 
 type
   TIdServerWSContext = class;
@@ -13,9 +23,9 @@ type
     const ARequestInfo: TIdHTTPRequestInfo; var Accept: Boolean) of object;
 
   TWebSocketChannelRequest = procedure(const AContext: TIdServerWSContext;
-    var aType:TWSDataType; const strmRequest, strmResponse: TMemoryStream) of object;
+    var aType: TWSDataType; const strmRequest, strmResponse: TMemoryStream) of object;
 
-  TWebSocketConnected    = procedure(const AContext: TIdServerWSContext) of object;
+  TWebSocketConnected = procedure(const AContext: TIdServerWSContext) of object;
   TWebSocketDisconnected = procedure(const AContext: TIdServerWSContext) of object;
 
   TWebSocketConnectionEvents = record
@@ -47,31 +57,33 @@ type
   public
     function IsSocketIO: Boolean;
     property SocketIO: TIdServerSocketIOHandling read FSocketIO write FSocketIO;
-    //property SocketIO: TIdServerBaseHandling read FSocketIO write FSocketIO;
+    // property SocketIO: TIdServerBaseHandling read FSocketIO write FSocketIO;
     property OnDestroy: TIdContextEvent read FOnDestroy write FOnDestroy;
   public
     destructor Destroy; override;
 
-    property ClientIP    : string read GetClientIP write FClientIP;
-    property Path        : string read FPath write FPath;
-    property Query       : string read FQuery write FQuery;
+    property ClientIP: string read GetClientIP write FClientIP;
+    property Path: string read FPath write FPath;
+    property Query: string read FQuery write FQuery;
     property ResourceName: string read FResourceName write FResourceName;
-    property Host        : string read FHost write FHost;
-    property Origin      : string read FOrigin write FOrigin;
-    property Cookie      : string read FCookie write FCookie;
+    property Host: string read FHost write FHost;
+    property Origin: string read FOrigin write FOrigin;
+    property Cookie: string read FCookie write FCookie;
 
-    property WebSocketKey       : string  read FWebSocketKey write FWebSocketKey;
-    property WebSocketProtocol  : string  read FWebSocketProtocol write FWebSocketProtocol;
-    property WebSocketVersion   : Integer read FWebSocketVersion write FWebSocketVersion;
-    property WebSocketExtensions: string  read FWebSocketExtensions write FWebSocketExtensions;
+    property WebSocketKey: string read FWebSocketKey write FWebSocketKey;
+    property WebSocketProtocol: string read FWebSocketProtocol write FWebSocketProtocol;
+    property WebSocketVersion: Integer read FWebSocketVersion write FWebSocketVersion;
+    property WebSocketExtensions: string read FWebSocketExtensions write FWebSocketExtensions;
   public
     property OnWebSocketUpgrade: TWebSocketUpgradeEvent read FOnWebSocketUpgrade write FOnWebSocketUpgrade;
     property OnCustomChannelExecute: TWebSocketChannelRequest read FOnCustomChannelExecute write FOnCustomChannelExecute;
   end;
 
 implementation
+
 uses
-  IdIOHandlerWebSocketSSL, IdIOHandlerStack;
+  IdIOHandlerWebSocketSSL,
+  IdIOHandlerStack;
 
 { TIdServerWSContext }
 
@@ -87,10 +99,10 @@ var
   LHandler: TIdIOHandlerStack;
 begin
   if FClientIP = '' then
-    begin
-      LHandler := IOHandler as TIdIOHandlerStack;
-      FClientIP := LHandler.Binding.IP;
-    end;
+  begin
+    LHandler := IOHandler as TIdIOHandlerStack;
+    FClientIP := LHandler.Binding.IP;
+  end;
   Result := FClientIP;
 end;
 
@@ -101,7 +113,7 @@ end;
 
 function TIdServerWSContext.IsSocketIO: Boolean;
 begin
-  //FDocument	= '/socket.io/1/websocket/13412152'
+  // FDocument	= '/socket.io/1/websocket/13412152'
   Result := StartsText('/socket.io/1/websocket/', FPath);
 end;
 

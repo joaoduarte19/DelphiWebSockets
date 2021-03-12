@@ -4,6 +4,7 @@ interface
 
 {$IF DEFINED(DEBUG) OR DEFINED(DEBUG_WS) OR DEFINED(CHECKSPEED)}
 
+
 uses
   {$IF DEFINED(MSWINDOWS)}
   Winapi.Windows,
@@ -36,7 +37,6 @@ begin
   var
     LMsg: string;
     {$ENDIF}
-
     {$IF DEFINED(DEBUG) OR DEFINED(DEBUG_WS) OR DEFINED(CHECKSPEED)}
   var
   LDateTime := FormatDateTime('hh:nn:ss', Now);

@@ -3,11 +3,13 @@ unit IdIOHandlerWebSocketSSL;
 {$WARN SYMBOL_DEPRECATED OFF}
 {$WARN SYMBOL_PLATFORM OFF}
 
+
 // The WebSocket Protocol, RFC 6455
 // http://datatracker.ietf.org/doc/rfc6455/?include_text=1
 interface
 
 {$I wsdefines.inc}
+
 
 uses
   System.Classes,
@@ -1107,12 +1109,14 @@ begin
 end;
 
 {$IF CompilerVersion >= 26}
+
 // XE5
 function TIdIOHandlerWebSocketSSL.UTF8Encoding: IIdTextEncoding;
 begin
   Result := IndyTextEncoding_UTF8;
 end;
 {$ELSE}
+
 
 function TIdIOHandlerWebSocketSSL.UTF8Encoding: TEncoding;
 begin

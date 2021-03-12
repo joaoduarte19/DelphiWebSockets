@@ -4,6 +4,7 @@ interface
 
 {$I wsdefines.inc}
 
+
 uses
   System.SyncObjs,
   System.SysUtils,
@@ -195,8 +196,7 @@ type
     procedure ProcessEvent(const AContext: ISocketIOContext; const AText: string; aMsgNr: Integer; AHasCallback: Boolean);
   private
     FOnEventError: TSocketIOEventError;
-  protected
-    type
+  protected type
     TSocketIOCallback = procedure(const AData: string) of object;
     TSocketIOCallbackRef = reference to procedure(const AData: string);
 
@@ -573,6 +573,7 @@ var
   LList: TSocketIOEventList;
   LEvent: TSocketIOEvent;
   LCallback: ISocketIOCallback;
+  LJsonErrorCallback: TJSONObject;
 begin
   // '5:' [message id ('+')] ':' [message endpoint] ':' [LJson encoded LEvent]
   // 5::/chat:{"name":"my other event","args":[{"my":"data"}]}
@@ -601,7 +602,15 @@ begin
               if Assigned(OnEventError) then
                 OnEventError(AContext, LCallback, e)
               else if LCallback <> nil then
-                LCallback.SendResponse(TJSONObject.ParseJSONValue('{"Error":{"msg":' + E.Message + '}').ToJSON);
+              begin
+                LJsonErrorCallback := TJSONObject.Create;
+                try // {"Error":{"msg":""}}
+                  LJsonErrorCallback.AddPair(TJSONPair.Create('Error', TJSONObject.Create(TJSONPair.Create('msg', E.Message))));
+                  LCallback.SendResponse(LJsonErrorCallback.ToJSON);
+                finally
+                  LJsonErrorCallback.Free;
+                end;
+              end;
             end;
           end;
       finally
@@ -753,7 +762,8 @@ begin
   FLock.Leave;
 end;
 
-procedure TIdBaseSocketIOHandling.ProcessSocketIORequest(const ASocket: ISocketIOContext; const AData: string);
+procedure TIdBaseSocketIOHandling.ProcessSocketIORequest(
+  const ASocket: ISocketIOContext; const AData: string);
 
   function __GetSocketIOPart(const AData: string; aIndex: Integer): string;
   var ipos: Integer;
@@ -783,13 +793,15 @@ var
   str, smsg, schannel, sdata: string;
   imsg: Integer;
   bCallback: Boolean;
-// socket: TSocketIOContext;
   callback: TSocketIOCallback;
   callbackref: TSocketIOCallbackRef;
   callbackobj: ISocketIOCallback;
   errorref: TSocketIOError;
-// error: TJSONValue;
+  error: TJSONValue;
+  LErrorOb: TJSONObject;
   socket: TSocketIOContext;
+  LJsonCallback: TJSONValue;
+  LJsonErrorCallback: TJSONObject;
 begin
   if ASocket = nil then
     Exit;
@@ -803,7 +815,7 @@ begin
       // ASocket._AddRef;
       FConnections.Add(nil, socket); // clients do not have a TIdContext?
     finally
-      Unlock;
+      UnLock;
     end;
   end;
 
@@ -864,7 +876,16 @@ begin
             on E: Exception do
             begin
               if not callbackobj.IsResponseSend then
-                callbackobj.SendResponse(TJSONObject.ParseJSONValue('{"Error":{"Type":"' + E.ClassName + '","Message":"' + E.Message + '"}}').ToJSON);
+              begin
+                LJsonErrorCallback := TJSONObject.Create;
+                try // {"Error":{"Type":"","Message":""}}
+                  LJsonErrorCallback.AddPair(TJSONPair.Create('Error', TJSONObject.Create(TJSONPair.Create('Type', E.ClassName))));
+                  TJSONObject(LJsonErrorCallback.GetValue('Error')).AddPair('Message', E.Message);
+                  callbackobj.SendResponse(LJsonErrorCallback.ToJSON);
+                finally
+                  LJsonErrorCallback.Free;
+                end;
+              end;
             end;
           end;
         finally
@@ -884,25 +905,39 @@ begin
   begin
     if Assigned(OnSocketIOJson) then
     begin
-      if bCallback then
-      begin
-        callbackobj := TSocketIOCallbackObj.Create(Self, socket, imsg);
-        try
+      LJsonCallback := TJSONObject.ParseJSONValue(sData);
+      try
+        if bCallback then
+        begin
+          callbackobj := TSocketIOCallbackObj.Create(Self, socket, imsg);
           try
-            OnSocketIOJson(socket, TJSONObject.ParseJSONValue(sdata), callbackobj); // , imsg, bCallback);
-          except
-            on E: Exception do
-            begin
-              if not callbackobj.IsResponseSend then
-                callbackobj.SendResponse(TJSONObject.ParseJSONValue('{"Error":{"Type":"' + e.ClassName + '","Message":"' + e.Message + '"}}').ToJSON);
+            try
+              OnSocketIOJson(socket, LJsonCallback, callbackobj); // , imsg, bCallback);
+            except
+              on E: Exception do
+              begin
+                if not callbackobj.IsResponseSend then
+                begin
+                  LJsonErrorCallback := TJSONObject.Create;
+                  try // {"Error":{"Type":"","Message":""}}
+                    LJsonErrorCallback.AddPair(TJSONPair.Create('Error', TJSONObject.Create(TJSONPair.Create('Type', E.ClassName))));
+                    TJSONObject(LJsonErrorCallback.GetValue('Error')).AddPair('Message', E.Message);
+                    callbackobj.SendResponse(LJsonErrorCallback.ToJSON);
+                  finally
+                    LJsonErrorCallback.Free;
+                  end;
+                end;
+              end;
             end;
-          end;
-        finally
-          callbackobj := nil;
+          finally
+            callbackobj := nil;
+          end
         end
-      end
-      else
-        OnSocketIOJson(ASocket, TJSONObject.ParseJSONValue(sdata), nil); // , imsg, bCallback);
+        else
+          OnSocketIOJson(ASocket, LJsonCallback, nil); // , imsg, bCallback);
+      finally
+        LJsonCallback.Free;
+      end;
     end;
   end
   // (5) Event
@@ -934,22 +969,27 @@ begin
     begin
       FSocketIOErrorRef.Remove(imsg);
       // '[{"Error":{"Message":"Operation aborted","Type":"EAbort"}}]'
-      { TODO -oJoao : review this item }
-// if ContainsText(sdata, '{"Error":') then
-// begin
-// error := TJSONObject.ParseJSONValue(sdata);
-// if error.IsType(stArray) then
-// error := error.O['0'];
-// error := error.O['Error'];
-// if error.S['Message'] <> '' then
-// errorref(ASocket, error.S['Type'], error.S['Message'])
-// else
-// errorref(ASocket, 'Unknown', sdata);
-//
-// FSocketIOEventCallback.Remove(imsg);
-// FSocketIOEventCallbackRef.Remove(imsg);
-// Exit;
-// end;
+      if ContainsText(sdata, '{"Error":') then
+      begin
+        error := TJSONObject.ParseJSONValue(sdata);
+        try
+          if error is TJSONArray then
+            LErrorOb := TJSONArray(error).Items[0] as TJSONObject
+          else
+            LErrorOb := error as TJSONObject;
+
+          if LErrorOb.GetValue('Message').Value <> '' then
+            errorref(ASocket, LErrorOb.GetValue('Type').Value, LErrorOb.GetValue('Message').Value)
+          else
+            errorref(ASocket, 'Unknown', sdata);
+        finally
+          error.Free;
+        end;
+
+        FSocketIOEventCallback.Remove(imsg);
+        FSocketIOEventCallbackRef.Remove(imsg);
+        Exit;
+      end;
     end;
 
     if FSocketIOEventCallback.TryGetValue(imsg, callback) then
@@ -1162,6 +1202,7 @@ begin
     end;
 
     Result := promise.Data;
+    promise.Data := nil;
     if promise.Error <> nil then
     begin
       Assert(not promise.Success);
@@ -1342,9 +1383,16 @@ begin
   else
   begin
     FHandling.WriteSocketIOEventRef(Self, '', AEventName, '[' + AData + ']',
-      procedure(const AData: string)
+      procedure(const Data: string)
+      var
+        LJSONValue: TJSONValue;
       begin
-        ACallback(Self, TJSONObject.ParseJSONValue(AData), nil);
+        LJSONValue := TJSONObject.ParseJSONValue(Data);
+        try
+          ACallback(Self, LJSONValue, nil);
+        finally
+          FreeAndNil(LJSONValue);
+        end;
       end, AOnError);
   end;
 end;
@@ -1432,9 +1480,16 @@ begin
   else
   begin
     FHandling.WriteSocketIOMsg(Self, '', AData,
-      procedure(const AData: string)
+      procedure(const Data: string)
+      var
+        LJSONValue: TJSONValue;
       begin
-        ACallback(Self, TJSONObject.ParseJSONValue(AData), nil);
+        LJSONValue := TJSONObject.ParseJSONValue(Data);
+        try
+          ACallback(Self, LJSONValue, nil);
+        finally
+          FreeAndNil(LJSONValue);
+        end;
       end, AOnError);
   end;
 end;
@@ -1447,8 +1502,15 @@ begin
   begin
     FHandling.WriteSocketIOMsg(Self, '', AJSON.ToJSON,
       procedure(const Data: string)
+      var
+        LJSONValue: TJSONValue;
       begin
-        ACallback(Self, TJSONObject.ParseJSONValue(Data), nil);
+        LJSONValue := TJSONObject.ParseJSONValue(Data);
+        try
+          ACallback(Self, LJSONValue, nil);
+        finally
+          FreeAndNil(LJSONValue);
+        end;
       end, AOnError);
   end;
 end;
@@ -1588,8 +1650,15 @@ begin
       else
         WriteSocketIOEventRef(LContext, '' { no room } , AEventName, LJsonArrayStr,
           procedure(const Data: string)
+          var
+            LJSONValue: TJSONValue;
           begin
-            ACallback(LContext, TJSONObject.ParseJSONValue(Data), nil);
+            LJSONValue := TJSONObject.ParseJSONValue(Data);
+            try
+              ACallback(LContext, LJSONValue, nil);
+            finally
+              FreeAndNil(LJSONValue);
+            end;
           end,
           AOnError);
       Inc(LSendCount);
@@ -1604,8 +1673,15 @@ begin
       else
         WriteSocketIOEventRef(LContext, '' { no room } , AEventName, LJsonArrayStr,
           procedure(const Data: string)
+          var
+            LJSONValue: TJSONValue;
           begin
-            ACallback(LContext, TJSONObject.ParseJSONValue(Data), nil);
+            LJSONValue := TJSONObject.ParseJSONValue(Data);
+            try
+              ACallback(LContext, LJSONValue, nil);
+            finally
+              FreeAndNil(LJSONValue);
+            end;
           end,
           AOnError);
       Inc(LSendCount);
@@ -1679,8 +1755,15 @@ begin
       else
         WriteSocketIOEventRef(LContext, '' { no room } , AEventName, AData,
           procedure(const Data: string)
+          var
+            LJSONValue: TJSONValue;
           begin
-            ACallback(LContext, TJSONObject.ParseJSONValue(Data), nil);
+            LJSONValue := TJSONObject.ParseJSONValue(Data);
+            try
+              ACallback(LContext, LJSONValue, nil);
+            finally
+              FreeAndNil(LJSONValue);
+            end;
           end,
           AOnError);
       Inc(LSendCount);
@@ -1695,8 +1778,15 @@ begin
       else
         WriteSocketIOEventRef(LContext, '' { no room } , AEventName, AData,
           procedure(const Data: string)
+          var
+            LJSONValue: TJSONValue;
           begin
-            ACallback(LContext, TJSONObject.ParseJSONValue(Data), nil);
+            LJSONValue := TJSONObject.ParseJSONValue(Data);
+            try
+              ACallback(LContext, LJSONValue, nil);
+            finally
+              FreeAndNil(LJSONValue);
+            end;
           end,
           AOnError);
       Inc(LSendCount);
@@ -1729,8 +1819,15 @@ begin
       else
         WriteSocketIOMsg(LContext, '' { no room } , AMessage,
           procedure(const Data: string)
+          var
+            LJSONValue: TJSONValue;
           begin
-            ACallback(LContext, TJSONObject.ParseJSONValue(Data), nil);
+            LJSONValue := TJSONObject.ParseJSONValue(Data);
+            try
+              ACallback(LContext, LJSONValue, nil);
+            finally
+              FreeAndNil(LJSONValue);
+            end;
           end, AOnError);
       Inc(LSendCount);
     end;
@@ -1744,8 +1841,15 @@ begin
       else
         WriteSocketIOMsg(LContext, '' { no room } , AMessage,
           procedure(const Data: string)
+          var
+            LJSONValue: TJSONValue;
           begin
-            ACallback(LContext, TJSONObject.ParseJSONValue(Data), nil);
+            LJSONValue := TJSONObject.ParseJSONValue(Data);
+            try
+              ACallback(LContext, LJSONValue, nil);
+            finally
+              FreeAndNil(LJSONValue);
+            end;
           end, AOnError);
       Inc(LSendCount);
     end;

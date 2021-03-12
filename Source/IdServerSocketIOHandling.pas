@@ -4,6 +4,7 @@ interface
 
 {$I wsdefines.inc}
 
+
 uses
   System.Classes,
   System.Generics.Collections,
@@ -58,8 +59,15 @@ begin
   else
     WriteSocketIOEventRef(AContext, '' { no room } , AEventName, LJsonArrayStr,
       procedure(const Data: string)
+      var
+        LJSONValue: TJSONValue;
       begin
-        ACallback(AContext, TJSONObject.ParseJSONValue(Data), nil);
+        LJSONValue := TJSONObject.ParseJSONValue(Data);
+        try
+          ACallback(AContext, LJSONValue, nil);
+        finally
+          FreeAndNil(LJSONValue);
+        end;
       end,
       AOnError);
 end;
@@ -106,8 +114,15 @@ begin
         else
           WriteSocketIOEventRef(LContext, '' { no room } , AEventName, LJsonArrayStr,
             procedure(const Data: string)
+            var
+              LJSONValue: TJSONValue;
             begin
-              ACallback(LContext, TJSONObject.ParseJSONValue(Data), nil);
+              LJSONValue := TJSONObject.ParseJSONValue(Data);
+              try
+                ACallback(LContext, LJSONValue, nil);
+              finally
+                FreeAndNil(LJSONValue);
+              end;
             end,
             AOnError);
       except
@@ -126,8 +141,15 @@ begin
         else
           WriteSocketIOEventRef(LContext, '' { no room } , AEventName, LJsonArrayStr,
             procedure(const Data: string)
+            var
+              LJSONValue: TJSONValue;
             begin
-              ACallback(LContext, TJSONObject.ParseJSONValue(Data), nil);
+              LJSONValue := TJSONObject.ParseJSONValue(Data);
+              try
+                ACallback(LContext, LJSONValue, nil);
+              finally
+                FreeAndNil(LJSONValue);
+              end;
             end, AOnError);
       except
         // try to send to others
@@ -155,8 +177,15 @@ begin
     else
       WriteSocketIOMsg(LContext, '' { no room } , AMessage,
         procedure(const Data: string)
+        var
+          LJSONValue: TJSONValue;
         begin
-          ACallback(LContext, TJSONObject.ParseJSONValue(Data), nil);
+          LJSONValue := TJSONObject.ParseJSONValue(Data);
+          try
+            ACallback(LContext, LJSONValue, nil);
+          finally
+            FreeAndNil(LJSONValue);
+          end;
         end, AOnError);
   finally
     Unlock;
@@ -180,8 +209,15 @@ begin
       else
         WriteSocketIOMsg(LContext, '' { no room } , AMessage,
           procedure(const Data: string)
+          var
+            LJSONValue: TJSONValue;
           begin
-            ACallback(LContext, TJSONObject.ParseJSONValue(Data), nil);
+            LJSONValue := TJSONObject.ParseJSONValue(Data);
+            try
+              ACallback(LContext, LJSONValue, nil);
+            finally
+              FreeAndNil(LJSONValue);
+            end;
           end, AOnError);
       Inc(Result);
     end;
@@ -195,8 +231,15 @@ begin
       else
         WriteSocketIOMsg(LContext, '' { no room } , AMessage,
           procedure(const Data: string)
+          var
+            LJSONValue: TJSONValue;
           begin
-            ACallback(LContext, TJSONObject.ParseJSONValue(Data), nil);
+            LJSONValue := TJSONObject.ParseJSONValue(Data);
+            try
+              ACallback(LContext, LJSONValue, nil);
+            finally
+              FreeAndNil(LJSONValue);
+            end;
           end);
       Inc(Result);
     end;

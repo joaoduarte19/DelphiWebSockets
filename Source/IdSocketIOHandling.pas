@@ -66,10 +66,10 @@ type
 
     procedure EmitEvent(const AEventName: string; const AData: TJSONValue; const ACallback: TSocketIOMsgJSON = nil;
       const AOnError: TSocketIOError = nil); overload;
-    procedure SendJSON(const AJSON: TJSONValue; const ACallback: TSocketIOMsgJSON = nil; const AOnError: TSocketIOError = nil);
     procedure EmitEvent(const AEventName: string; const AData: string; const ACallback: TSocketIOMsgJSON = nil;
       const AOnError: TSocketIOError = nil); overload;
     procedure Send(const AData: string; const ACallback: TSocketIOMsgJSON = nil; const AOnError: TSocketIOError = nil);
+    procedure SendJSON(const AJSON: TJSONValue; const ACallback: TSocketIOMsgJSON = nil; const AOnError: TSocketIOError = nil);
   end;
 
   TSocketIOContext = class(TInterfacedObject, ISocketIOContext)

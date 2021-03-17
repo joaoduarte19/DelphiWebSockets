@@ -31,14 +31,12 @@ uses
   System.SyncObjs;
 
 procedure OutputDebugString(const ARoleName, AMsg: string);
+{$IF DEFINED(DEBUG) OR DEFINED(DEBUG_WS) OR DEFINED(CHECKSPEED)}
+var
+  LDateTime: string;
+{$ENDIF}
 begin
-
   {$IF DEFINED(DEBUG) OR DEFINED(DEBUG_WS) OR DEFINED(CHECKSPEED)}
-  var
-    LMsg: string;
-    {$ENDIF}
-    {$IF DEFINED(DEBUG) OR DEFINED(DEBUG_WS) OR DEFINED(CHECKSPEED)}
-  var
   LDateTime := FormatDateTime('hh:nn:ss', Now);
   {$IF DEFINED(MSWINDOWS)}
   LMsg := Format('%s - %s - %s', [LDateTime, ARoleName, AMsg]);

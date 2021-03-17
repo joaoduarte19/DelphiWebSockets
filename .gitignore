@@ -72,3 +72,4 @@ modules/
 *.xml
 *.ini
 *.log
+*.skincfg

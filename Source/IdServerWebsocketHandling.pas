@@ -4,7 +4,6 @@ interface
 
 {$I wsdefines.inc}
 
-
 uses
   System.Classes,
   System.StrUtils,
@@ -183,7 +182,11 @@ begin
       ASocketIOHandler.WriteDisconnect(LContext);
     end;
     LContext.IOHandler.Clear;
+   {$IFDEF NEXTGEN}
+    AThread.DataObject := nil;
+   {$ELSE}
     AThread.Data := nil;
+   {$ENDIF}
   end;
 end;
 
@@ -213,6 +216,9 @@ var
   LContext: TIdServerWSContext;
   LHash: TIdHashSHA1;
   LGuid: TGUID;
+  LCommandType: THTTPCommandType;
+  LSocketIOHandlingExt: TIdServerSocketIOHandling_Ext;
+  LPostStream: TStream;
 begin
   (* GET /chat HTTP/1.1
      Host: server.example.com
@@ -271,13 +277,11 @@ begin
 
       LSGuid := Copy(ARequestInfo.Document, 1 + Length('/socket.io/1/xhr-polling/'),
         Length(ARequestInfo.Document));
-      var
+
       LCommandType := ARequestInfo.CommandType;
       if LCommandType in [hcGET, hcPOST] then
       begin
-        var
         LSocketIOHandlingExt := (AThread.SocketIO as TIdServerSocketIOHandling_Ext);
-        var
         LPostStream := ARequestInfo.PostStream;
         case LCommandType of
           hcGET:

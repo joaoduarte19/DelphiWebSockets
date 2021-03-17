@@ -201,12 +201,13 @@ begin
 end;
 
 procedure TIdHTTPWebSocketClient.AfterConstruction;
+var
+  LHandler: TIdIOHandlerWebSocketSSL;
 begin
   inherited;
   FCS := System.SyncObjs.TCriticalSection.Create;
   FHash := TIdHashSHA1.Create;
 
-  var
   LHandler := MakeImplicitClientHandler as TIdIOHandlerWebSocketSSL;
   LHandler.UseNagle := False;
   IOHandler := LHandler;
@@ -222,11 +223,12 @@ begin
 end;
 
 procedure TIdHTTPWebSocketClient.AsyncDispatchEvent(const AEvent: TStream);
+var
+  LStreamEvent: TMemoryStream;
 begin
   if not Assigned(OnMessageBin) then
     Exit;
 
-  var
   LStreamEvent := TMemoryStream.Create;
   LStreamEvent.CopyFrom(aEvent, aEvent.Size);
 
@@ -283,8 +285,9 @@ begin
 end;
 
 procedure TIdHTTPWebSocketClient.CloseWebSocket(const AReason: string);
+var
+  LHandler: IIOHandlerWebSocket;
 begin
-  var
   LHandler := IOHandler;
   if LHandler <> nil then
   begin
@@ -364,6 +367,8 @@ begin
 end;
 
 destructor TIdHTTPWebSocketClient.Destroy;
+var
+  LHandler: IIOHandlerWebSocket;
 begin
 // tmr := FHeartBeat;
 // FHeartBeat := nil;
@@ -380,7 +385,7 @@ begin
       TThread.Current.NameThreadForDebugging('Locking instance for removal ' + TThread.Current.ThreadID.ToString);
       TIdWebSocketMultiReadThread.Instance.Lock;
       TIdWebSocketMultiReadThread.Instance.RemoveClient(Self);
-      var
+
       LHandler := IOHandler;
       if Assigned(LHandler) then
       begin
@@ -564,8 +569,9 @@ begin
 end;
 
 procedure TIdHTTPWebSocketClient.Write(const AMessage: string);
+var
+  LHandler: IIOHandlerWebSocket;
 begin
-  var
   LHandler := IOHandler;
   if LHandler.Connected then
   begin
@@ -574,8 +580,9 @@ begin
 end;
 
 procedure TIdHTTPWebSocketClient.Write(const AStream: TStream);
+var
+  LHandler: IIOHandlerWebSocket;
 begin
-  var
   LHandler := IOHandler;
   if LHandler.Connected then
   begin
@@ -584,8 +591,9 @@ begin
 end;
 
 procedure TIdHTTPWebSocketClient.Write(const ABytes: TArray<Byte>);
+var
+  LHandler: IIOHandlerWebSocket;
 begin
-  var
   LHandler := IOHandler;
   if LHandler.Connected then
   begin
@@ -593,10 +601,10 @@ begin
   end;
 end;
 
-procedure TIdHTTPWebSocketClient.InternalDisconnect(ANotifyPeer: Boolean;
-const AReason: string);
+procedure TIdHTTPWebSocketClient.InternalDisconnect(ANotifyPeer: Boolean; const AReason: string);
+var
+  LHandler: IIOHandlerWebSocket;
 begin
-  var
   LHandler := IOHandler;
 
 // See if we can get the reason from the server by using the read thread
@@ -646,8 +654,7 @@ begin
   end;
 end;
 
-procedure TIdHTTPWebSocketClient.InternalUpgradeToWebSocket(
-  ARaiseException: Boolean; out AFailedReason: string);
+procedure TIdHTTPWebSocketClient.InternalUpgradeToWebSocket(ARaiseException: Boolean; out AFailedReason: string);
 
   function GenerateWebSocketKey: string;
   var
@@ -963,8 +970,9 @@ begin
 end;
 
 procedure TIdHTTPWebSocketClient.InternalWrite(const AStream: TStream);
+var
+  LHandler: IIOHandlerWebSocket;
 begin
-  var
   LHandler := IOHandler;
   AStream.Position := 0;
   LHandler.Write(AStream, wdtBinary);
@@ -1050,12 +1058,12 @@ var
   LStreamEvent: TMemoryStream;
   LWSText: UTF8String;
   LWSCode: TWSDataCode;
+  LHandler: IIOHandlerWebSocket;
 begin
   {$IF DEFINED(DEBUG_WS)}
   WSDebugger.OutputDebugString('WSChat', 'Entering ReadAndProcessData');
   {$ENDIF}
   LStreamEvent := nil;
-  var
   LHandler := IOHandler;
   LHandler.Lock;
   try
@@ -1114,9 +1122,10 @@ begin
 end;
 
 procedure TIdHTTPWebSocketClient.ResetChannel;
+var
+  LHandler: IIOHandlerWebSocket;
 begin
 // TIdWebSocketMultiReadThread.Instance.RemoveClient(Self); keep for reconnect
-  var
   LHandler := IOHandler;
   if LHandler <> nil then
   begin
@@ -1182,8 +1191,9 @@ begin
 end;
 
 procedure TIdHTTPWebSocketClient.InternalSetWriteTimeout(const AValue: Integer);
+var
+  LHandler: IIOHandlerWebSocket;
 begin
-  var
   LHandler := IOHandler;
   LHandler.Binding.SetSockOpt(Id_SOL_SOCKET, Id_SO_SNDTIMEO, AValue);
 end;

@@ -1,0 +1,58 @@
+package DelphiWebSockets;
+
+{$R *.res}
+{$IFDEF IMPLICITBUILDING This IFDEF should not be used by users}
+{$ALIGN 8}
+{$ASSERTIONS ON}
+{$BOOLEVAL OFF}
+{$DEBUGINFO OFF}
+{$EXTENDEDSYNTAX ON}
+{$IMPORTEDDATA ON}
+{$IOCHECKS ON}
+{$LOCALSYMBOLS ON}
+{$LONGSTRINGS ON}
+{$OPENSTRINGS ON}
+{$OPTIMIZATION OFF}
+{$OVERFLOWCHECKS OFF}
+{$RANGECHECKS OFF}
+{$REFERENCEINFO ON}
+{$SAFEDIVIDE OFF}
+{$STACKFRAMES ON}
+{$TYPEDADDRESS OFF}
+{$VARSTRINGCHECKS ON}
+{$WRITEABLECONST OFF}
+{$MINENUMSIZE 1}
+{$IMAGEBASE $400000}
+{$DEFINE DEBUG}
+{$ENDIF IMPLICITBUILDING}
+{$DESCRIPTION 'DelphiWebSockets'}
+{$LIBSUFFIX '24'}
+{$RUNONLY}
+{$IMPLICITBUILD ON}
+
+requires
+  rtl,
+  IndySystem,
+  IndyProtocols,
+  IndyCore;
+
+contains
+  IdHTTPWebSocketClient in '..\..\Source\IdHTTPWebSocketClient.pas',
+  IdIIOHandlerWebSocket in '..\..\Source\IdIIOHandlerWebSocket.pas',
+  IdIOHandlerWebSocket in '..\..\Source\IdIOHandlerWebSocket.pas',
+  IdIOHandlerWebSocketSSL in '..\..\Source\IdIOHandlerWebSocketSSL.pas',
+  IdServerBaseHandling in '..\..\Source\IdServerBaseHandling.pas',
+  IdServerIOHandlerWebSocket in '..\..\Source\IdServerIOHandlerWebSocket.pas',
+  IdServerIOHandlerWebSocketSSL in '..\..\Source\IdServerIOHandlerWebSocketSSL.pas',
+  IdServerSocketIOHandling in '..\..\Source\IdServerSocketIOHandling.pas',
+  IdServerWebSocketContext in '..\..\Source\IdServerWebSocketContext.pas',
+  IdServerWebSocketHandling in '..\..\Source\IdServerWebSocketHandling.pas',
+  IdSocketIOHandling in '..\..\Source\IdSocketIOHandling.pas',
+  IdWebSocketConsts in '..\..\Source\IdWebSocketConsts.pas',
+  IdWebSocketServer in '..\..\Source\IdWebSocketServer.pas',
+  IdWebSocketServerSSL in '..\..\Source\IdWebSocketServerSSL.pas',
+  IdWebSocketTypes in '..\..\Source\IdWebSocketTypes.pas',
+  WSDebugger in '..\..\Source\WSDebugger.pas',
+  WSMultiReadThread in '..\..\Source\WSMultiReadThread.pas';
+
+end.

@@ -225,6 +225,7 @@ var
   sReason: UTF8String;
   iOptVal: Integer;
   LConnected: Boolean;
+  LHandle: NativeUInt;
 begin
   try
     // valid connection?
@@ -232,7 +233,10 @@ begin
 
     // no socket error? connection closed by software abort, connection reset by peer, etc
     try
-      GStack.GetSocketOption(Binding.Handle, Id_SOL_SOCKET, SO_ERROR, iOptVal);
+      LHandle := 0;
+      if Assigned(Binding) then
+        LHandle := Binding.Handle;
+      GStack.GetSocketOption(LHandle, Id_SOL_SOCKET, SO_ERROR, iOptVal);
       LConnected := LConnected and (iOptVal = 0);
     except
       LConnected := False;

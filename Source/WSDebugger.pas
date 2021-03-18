@@ -34,6 +34,7 @@ procedure OutputDebugString(const ARoleName, AMsg: string);
 {$IF DEFINED(DEBUG) OR DEFINED(DEBUG_WS) OR DEFINED(CHECKSPEED)}
 var
   LDateTime: string;
+  LMsg: string;
 {$ENDIF}
 begin
   {$IF DEFINED(DEBUG) OR DEFINED(DEBUG_WS) OR DEFINED(CHECKSPEED)}
